@@ -1,0 +1,7 @@
+413848536 water_sensor_status
+3581156864 watermeter_flow
+2881466520 watermeter_stand
+2086030061 watermeter_totaal
+2038807002 watermeter-s0tool_-_wifi_signal
+1419664774 actuele_meterstand_kwh
+4197296780 actuele_power_w

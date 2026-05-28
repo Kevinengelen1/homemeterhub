@@ -1,0 +1,38 @@
+services:
+  homemeterhub:
+    image: ghcr.io/YOUR_GITHUB_USERNAME/homemeterhub:latest
+    container_name: homemeterhub
+    restart: unless-stopped
+    environment:
+      APP_LOG_LEVEL: "INFO"
+      APP_TIMEZONE: "Europe/Amsterdam"
+      ENABLE_P1_COLLECTOR: "true"
+      ENABLE_WATER_COLLECTOR: "true"
+      ENABLE_DB_INIT: "true"
+      DB_HOST: "postgres"
+      DB_PORT: "5432"
+      DB_NAME: "energy"
+      DB_USER: "energy_user"
+      DB_PASSWORD: "change-me"
+      DB_SSLMODE: "prefer"
+      DB_CONNECT_TIMEOUT_SECONDS: "10"
+      DB_APPLICATION_NAME: "homemeterhub"
+      P1_BASE_URL: "http://192.168.30.50"
+      P1_POLL_INTERVAL_SECONDS: "1"
+      P1_HTTP_TIMEOUT_SECONDS: "5"
+      P1_ENDPOINT_E: "/e"
+      P1_ENDPOINT_F: "/f"
+      P1_ENDPOINT_D: "/d"
+      P1_DEVICE_INFO_INTERVAL_SECONDS: "3600"
+      P1_STORE_RAW_JSON: "true"
+      P1_RETRY_DELAY_SECONDS: "5"
+      S0TOOL_HOST: "192.168.30.57"
+      S0TOOL_PORT: "6053"
+      S0TOOL_NOISE_PSK: ""
+      S0TOOL_RECONNECT_DELAY_SECONDS: "10"
+      S0TOOL_KEY_WATER_STATUS: "413848536"
+      S0TOOL_KEY_WATER_FLOW: "3581156864"
+      S0TOOL_KEY_WATER_STAND: "2881466520"
+      S0TOOL_KEY_WATER_TOTAL: "2086030061"
+      S0TOOL_KEY_WIFI_SIGNAL: "2038807002"
+      S0TOOL_STORE_RAW_PAYLOAD: "true"
