@@ -388,7 +388,7 @@ class Database:
 
         table, column, unit, kind = HISTORY_METRICS[metric]
         if interval == "raw":
-            query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+            query = f"""
                 SELECT measured_at AS at, {column} AS value
                 FROM {table}
                 WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
@@ -404,7 +404,7 @@ class Database:
                 "max": f"MAX({column})",
                 "delta": f"MAX({column}) - MIN({column})",
             }[aggregation]
-            query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+            query = f"""
                 SELECT date_trunc(%s, measured_at) AS at, {aggregate} AS value
                 FROM {table}
                 WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
@@ -438,7 +438,7 @@ class Database:
         table, column, unit, _ = HISTORY_METRICS[metric]
         if page < 1 or not 1 <= page_size <= 500:
             raise ValueError("Invalid drill-down pagination")
-        query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+        query = f"""
             SELECT measured_at AS at, {column} AS value
             FROM {table}
             WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
@@ -471,7 +471,7 @@ class Database:
             raise ValueError(f"Export exceeds APP_HISTORY_EXPORT_MAX_ROWS ({max_rows})")
         # A bounded export may need more than one page; fetch its complete row set in one query.
         table, column, unit, _ = HISTORY_METRICS[metric]
-        query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+        query = f"""
             SELECT measured_at AS at, {column} AS value
             FROM {table}
             WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
