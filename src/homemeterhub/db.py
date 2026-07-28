@@ -483,3 +483,31 @@ class Database:
                 {"at": at.isoformat(), "value": float(value)} for at, value in cursor.fetchall()
             ]
         return {"metric": metric, "unit": unit, "rows": rows}
+
+    def period_summary(self, start: Any, end: Any) -> dict[str, float | None]:
+        p1_query = """
+            SELECT
+                MAX(electricity_net_kwh) - MIN(electricity_net_kwh),
+                MAX(electricity_delivered_t1_kwh) - MIN(electricity_delivered_t1_kwh),
+                MAX(electricity_delivered_t2_kwh) - MIN(electricity_delivered_t2_kwh),
+                MAX(gas_m3) - MIN(gas_m3)
+            FROM p1_measurements
+            WHERE measured_at >= %s AND measured_at < %s
+        """
+        water_query = """
+            SELECT MAX(watermeter_total_m3) - MIN(watermeter_total_m3)
+            FROM water_measurements
+            WHERE measured_at >= %s AND measured_at < %s
+        """
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(p1_query, (start, end))
+            net, high, low, gas = cursor.fetchone()
+            cursor.execute(water_query, (start, end))
+            water = cursor.fetchone()[0]
+        return {
+            "net_consumption_kwh": float(net) if net is not None else None,
+            "high_tariff_kwh": float(high) if high is not None else None,
+            "low_tariff_kwh": float(low) if low is not None else None,
+            "gas_m3": float(gas) if gas is not None else None,
+            "water_m3": float(water) if water is not None else None,
+        }

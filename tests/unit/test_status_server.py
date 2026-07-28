@@ -8,7 +8,13 @@ import pytest
 
 from homemeterhub.config import AppSettings
 from homemeterhub.runtime_state import RuntimeState
-from homemeterhub.status_server import StatusServer, _render_html, health_payload, history_request
+from homemeterhub.status_server import (
+    StatusServer,
+    _render_dashboard_html,
+    _render_html,
+    health_payload,
+    history_request,
+)
 
 
 def test_render_html_contains_runtime_sections() -> None:
@@ -19,6 +25,18 @@ def test_render_html_contains_runtime_sections() -> None:
     assert "Water collector" in html
     assert "Version 0.2.0" in html
     assert "/status.json" in html
+
+
+def test_dashboard_has_period_tiles_and_no_auto_refresh() -> None:
+    html = _render_dashboard_html(RuntimeState().snapshot())
+
+    assert "Net consumption" in html
+    assert "High tariff" in html
+    assert "Low tariff" in html
+    assert "chart-electricity" in html
+    assert "chart-gas" in html
+    assert "chart-water" in html
+    assert "http-equiv=\"refresh\"" not in html
 
 
 def test_health_reports_stale_enabled_collector() -> None:

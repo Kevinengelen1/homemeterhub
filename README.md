@@ -104,6 +104,7 @@ Recommended deployment flow:
 When the status server is enabled, HomeMeterHub serves:
 
 - `/` for a lightweight HTML status page
+- `/dashboard` for period summaries, electricity/gas/water charts, and drill-down exploration
 - `/status.json` for the raw runtime snapshot
 - `/healthz` for a simple JSON health response
 - `/metrics` for Prometheus-compatible collector counters and connection gauges
@@ -117,10 +118,12 @@ returns HTTP 503 when an enabled collector has not produced a reading within its
 limit. Keep `APP_STATUS_ENABLED=true` in a container deployment; disabling the status server also
 makes Docker report the container as unhealthy.
 
-The status page includes a history explorer for electricity, gas, water totals, water flow, and
-instantaneous power. Choose a time range, grouping, and aggregation; select a chart point to reveal
-the source readings in that bucket. Long, fine-grained requests are automatically grouped into a
-coarser interval to remain within 2,000 chart points, and the page states when this happens.
+The dashboard includes period tiles for net/high/low electricity, gas, and water plus dedicated
+electricity, gas, and water charts. It does not auto-refresh, so the chosen period remains stable.
+Its explorer supports electricity, gas, water totals, water flow, and instantaneous power; choose a
+time range, grouping, and aggregation, then select a chart point to reveal the source readings in
+that bucket. Long, fine-grained requests are automatically grouped into a coarser interval to remain
+within 2,000 chart points, and the page states when this happens.
 Drill-down rows are paginated; the selected bucket can be exported as CSV (up to
 `APP_HISTORY_EXPORT_MAX_ROWS`, default: 100,000). History requests are bounded by
 `APP_HISTORY_MAX_DAYS` (default: 365).

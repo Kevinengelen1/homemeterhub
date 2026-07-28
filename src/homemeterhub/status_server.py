@@ -212,6 +212,42 @@ def _history_dashboard() -> str:
     """
 
 
+def _dashboard_overview() -> str:
+    return """
+      <section class="dashboard-toolbar">
+        <div><div class="label">Consumption dashboard</div><div id="dashboard-period" class="value">Selected period</div></div>
+        <label>Period <select id="dashboard-range"><option value="1">Today</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></label>
+        <button id="dashboard-refresh" type="button">Update</button>
+      </section>
+      <section class="summary-grid" aria-label="Period summary">
+        <article class="summary-tile"><span>Net consumption</span><strong id="summary-net">—</strong></article>
+        <article class="summary-tile"><span>High tariff</span><strong id="summary-high">—</strong></article>
+        <article class="summary-tile"><span>Low tariff</span><strong id="summary-low">—</strong></article>
+        <article class="summary-tile"><span>Gas</span><strong id="summary-gas">—</strong></article>
+        <article class="summary-tile"><span>Water</span><strong id="summary-water">—</strong></article>
+      </section>
+      <div id="dashboard-error" class="error" role="alert"></div>
+      <section class="dashboard-charts">
+        <article class="chart-panel"><h2>Electricity</h2><p>Net consumption per selected bucket.</p><svg id="chart-electricity" viewBox="0 0 900 250" role="img" aria-label="Electricity consumption chart"></svg></article>
+        <article class="chart-panel"><h2>Gas</h2><p>Gas consumption per selected bucket.</p><svg id="chart-gas" viewBox="0 0 900 250" role="img" aria-label="Gas consumption chart"></svg></article>
+        <article class="chart-panel"><h2>Water</h2><p>Water consumption per selected bucket.</p><svg id="chart-water" viewBox="0 0 900 250" role="img" aria-label="Water consumption chart"></svg></article>
+      </section>
+      <section class="explorer-section"><h2>Explore a trend</h2><p>Choose any metric, aggregation, and grouping below. Select a point to inspect and export its source readings.</p></section>
+      <script>
+      (() => {
+        const $ = id => document.getElementById(id);
+        const metricCharts = [['chart-electricity','electricity_net_kwh'],['chart-gas','gas_m3'],['chart-water','watermeter_total_m3']];
+        const format = (value, unit) => value === null || value === undefined ? '—' : `${Number(value).toFixed(3)} ${unit}`;
+        const dates = () => { const end=new Date(), start=new Date(end); start.setDate(start.getDate()-Number($('dashboard-range').value)); return [start,end]; };
+        const query = args => new URLSearchParams(args);
+        function line(svg, points, unit) { svg.replaceChildren(); if(!points.length){svg.textContent='No readings in this period'; return;} const values=points.map(point=>point.value), min=Math.min(...values), max=Math.max(...values), span=max-min||1, left=56,right=880,top=18,bottom=210,width=right-left,height=bottom-top; const ns='http://www.w3.org/2000/svg'; for(const [value,y] of [[max,top],[min,bottom]]){const label=document.createElementNS(ns,'text');label.setAttribute('x','4');label.setAttribute('y',String(y+4));label.textContent=`${value.toFixed(2)} ${unit}`;svg.append(label);const grid=document.createElementNS(ns,'line');grid.setAttribute('x1',String(left));grid.setAttribute('x2',String(right));grid.setAttribute('y1',String(y));grid.setAttribute('y2',String(y));grid.setAttribute('class','chart-grid');svg.append(grid);} const path=document.createElementNS(ns,'path');path.setAttribute('class','dashboard-trend');path.setAttribute('d',points.map((point,index)=>`${index?'L':'M'}${left+(index/Math.max(points.length-1,1))*width} ${bottom-((point.value-min)/span)*height}`).join(' '));svg.append(path);}
+        async function load() { const [start,end]=dates(), from=start.toISOString(), to=end.toISOString(), days=Number($('dashboard-range').value), interval=days<=2?'hour':days<=90?'day':'day'; $('dashboard-error').textContent=''; $('dashboard-period').textContent=`${start.toLocaleDateString()} – ${end.toLocaleDateString()}`; try { const summary=await fetch('/api/summary?'+query({from,to})).then(response=>response.json()); if(summary.error)throw new Error(summary.error); $('summary-net').textContent=format(summary.net_consumption_kwh,'kWh');$('summary-high').textContent=format(summary.high_tariff_kwh,'kWh');$('summary-low').textContent=format(summary.low_tariff_kwh,'kWh');$('summary-gas').textContent=format(summary.gas_m3,'m³');$('summary-water').textContent=format(summary.water_m3,'m³'); await Promise.all(metricCharts.map(async ([id,metric])=>{const response=await fetch('/api/history?'+query({metric,from,to,interval,aggregation:'delta'}));const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load chart');line($(id),data.points,data.unit);})); } catch(error) { $('dashboard-error').textContent=error.message; } }
+        $('dashboard-range').addEventListener('change',load); $('dashboard-refresh').addEventListener('click',load); load();
+      })();
+      </script>
+    """
+
+
 def _render_html(snapshot: dict[str, object]) -> str:
     pretty_json = html.escape(json.dumps(snapshot, indent=2))
     generated_at = datetime.now(tz=UTC).isoformat()
@@ -321,7 +357,7 @@ def _render_html(snapshot: dict[str, object]) -> str:
         {p1_card}
         {water_card}
       </div>
-      {_history_dashboard()}
+      <section class=\"card\"><div class=\"label\">Consumption history</div><a href=\"/dashboard\">Open the dashboard</a></section>
       <section class=\"card\">
         <div class=\"label\">Raw runtime snapshot</div>
         <pre>{pretty_json}</pre>
@@ -331,6 +367,23 @@ def _render_html(snapshot: dict[str, object]) -> str:
   </body>
 </html>
 """
+
+
+def _render_dashboard_html(snapshot: dict[str, object]) -> str:
+    application = snapshot["application"]
+    version_text = f"Version {html.escape(application['version'])} · revision {html.escape(application['revision'])}"
+    return f"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HomeMeterHub Dashboard</title><style>
+:root {{ --bg:#f4efe8;--panel:#fffaf2;--ink:#1d2a33;--accent:#1d6b57;--muted:#6b7280;--border:#d9cbb8; }}
+body {{ margin:0;font-family:Georgia,"Times New Roman",serif;background:radial-gradient(circle at top,#fffaf2,var(--bg));color:var(--ink); }}
+main {{ max-width:1160px;margin:0 auto;padding:24px; }} h1,h2 {{ margin:0 0 8px; }} h2 {{ font-size:1.2rem; }} p,.label,.selection {{ color:var(--muted); }} .top {{ display:flex;justify-content:space-between;gap:16px;align-items:baseline;flex-wrap:wrap;margin-bottom:22px; }}
+a {{ color:var(--accent); }} button,select {{ padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink); }} button {{ cursor:pointer;background:var(--accent);color:white; }}
+.dashboard-toolbar {{ display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:16px; }} .dashboard-toolbar label {{ display:grid;gap:4px;color:var(--muted);font-size:.85rem; }}
+.summary-grid {{ display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px; }} .summary-tile,.chart-panel,.history {{ background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:15px;box-shadow:0 10px 24px rgba(29,42,51,.07); }} .summary-tile span {{ display:block;color:var(--muted);font-size:.85rem; }} .summary-tile strong {{ display:block;font-size:1.35rem;margin-top:6px; }}
+.dashboard-charts {{ display:grid;gap:16px; }} .chart-panel svg,.history-chart {{ width:100%;height:auto;border-bottom:1px solid var(--border); }} .chart-panel text,.history-chart text {{ fill:var(--muted);font-size:13px; }} .chart-grid,.grid {{ stroke:var(--border);stroke-width:1; }} .dashboard-trend,.trend {{ fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round;stroke-linecap:round; }} .dot {{ fill:var(--accent);cursor:pointer; }} .error {{ color:#a33a2b;min-height:1.2em;margin:8px 0; }}
+.explorer-section {{ margin:28px 0 12px; }} .history-head,.controls,.drill-controls {{ display:flex;gap:10px;flex-wrap:wrap;align-items:end;justify-content:space-between; }} .controls label {{ display:grid;gap:3px;color:var(--muted);font-size:.82rem; }} .table-wrap {{ overflow-x:auto;margin-top:10px; }} table {{ width:100%;border-collapse:collapse;text-align:left; }} th,td {{ padding:8px;border-bottom:1px solid var(--border); }}
+</style></head><body><main><div class="top"><div><h1>HomeMeterHub Dashboard</h1><div class="label">{version_text}</div></div><a href="/">Operational status</a></div>{_dashboard_overview()}{_history_dashboard()}</main></body></html>"""
 
 
 class StatusServer:
@@ -377,6 +430,10 @@ class StatusServer:
                     response = _json_response(status_code, payload)
                 elif path == "/metrics":
                     response = _text_response(200, self.runtime_state.prometheus_metrics())
+                elif path == "/api/summary":
+                    _, start, end, _, _ = history_request(parse_qs(parsed_target.query), self.settings)
+                    payload = await asyncio.to_thread(self.database.period_summary, start, end)
+                    response = _json_response(200, payload)
                 elif path in {"/api/history", "/api/history/drilldown", "/api/history/export"}:
                     metric, start, end, interval, aggregation = history_request(
                         parse_qs(parsed_target.query), self.settings
@@ -403,6 +460,8 @@ class StatusServer:
                         response = _csv_response(f"homemeterhub-{metric}.csv", payload["rows"])
                 elif path == "/":
                     response = _html_response(200, _render_html(snapshot))
+                elif path == "/dashboard":
+                    response = _html_response(200, _render_dashboard_html(snapshot))
                 else:
                     response = _json_response(404, {"error": "not found", "path": path})
             except ValueError as error:
