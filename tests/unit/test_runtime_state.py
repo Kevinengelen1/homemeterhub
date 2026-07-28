@@ -7,6 +7,7 @@ from homemeterhub.runtime_state import RuntimeState
 
 def test_runtime_state_tracks_water_and_p1_activity() -> None:
     state = RuntimeState()
+    assert state.snapshot()["application"]["version"] == "0.2.0"
     state.record_p1_measurement(
         {
             "power_w": 1234,

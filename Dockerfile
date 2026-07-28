@@ -5,6 +5,9 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app/src
 
+ARG APP_BUILD_REVISION=unknown
+ENV APP_BUILD_REVISION=${APP_BUILD_REVISION}
+
 COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 

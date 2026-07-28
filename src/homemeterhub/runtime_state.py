@@ -6,6 +6,8 @@ from decimal import Decimal
 from threading import Lock
 from typing import Any
 
+from homemeterhub import __version__, build_revision
+
 
 def _utc_now() -> str:
     return datetime.now(tz=UTC).isoformat()
@@ -25,6 +27,10 @@ class RuntimeState:
     def __init__(self) -> None:
         self._lock = Lock()
         self._state: dict[str, Any] = {
+            "application": {
+                "version": __version__,
+                "revision": build_revision,
+            },
             "started_at": _utc_now(),
             "collectors": {
                 "p1": {
@@ -96,13 +102,13 @@ class RuntimeState:
             lines = ["# TYPE homemeterhub_collector_events_total counter"]
             for name, state in self._state["collectors"].items():
                 metric = f'homemeterhub_collector_events_total{{collector="{name}"}}'
-                lines.append(f'{metric} {state["event_count"]}')
+                lines.append(f"{metric} {state['event_count']}")
             lines.append("# TYPE homemeterhub_collector_errors_total counter")
             for name, state in self._state["collectors"].items():
                 metric = f'homemeterhub_collector_errors_total{{collector="{name}"}}'
-                lines.append(f'{metric} {state["error_count"]}')
+                lines.append(f"{metric} {state['error_count']}")
             lines.append("# TYPE homemeterhub_collector_connected gauge")
             for name, state in self._state["collectors"].items():
                 metric = f'homemeterhub_collector_connected{{collector="{name}"}}'
-                lines.append(f'{metric} {int(state["connected"])}')
+                lines.append(f"{metric} {int(state['connected'])}")
             return "\n".join(lines) + "\n"

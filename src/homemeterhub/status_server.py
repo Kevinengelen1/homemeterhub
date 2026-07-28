@@ -102,6 +102,14 @@ def _collector_card(title: str, snapshot: dict[str, Any]) -> str:
 def _render_html(snapshot: dict[str, object]) -> str:
     pretty_json = html.escape(json.dumps(snapshot, indent=2))
     generated_at = datetime.now(tz=UTC).isoformat()
+    application = snapshot["application"]
+    version_text = " · ".join(
+        (
+            f"Version {html.escape(application['version'])}",
+            f"revision {html.escape(application['revision'])}",
+            f"generated at {html.escape(generated_at)}",
+        )
+    )
     collectors = snapshot["collectors"]
     p1_card = _collector_card("P1 collector", collectors["p1"])
     water_card = _collector_card("Water collector", collectors["water"])
@@ -176,7 +184,7 @@ def _render_html(snapshot: dict[str, object]) -> str:
   <body>
     <main>
       <h1>HomeMeterHub Status</h1>
-      <div class=\"meta\">Generated at {html.escape(generated_at)}. Refreshes every 5 seconds.</div>
+      <div class=\"meta\">{version_text}. Refreshes every 5 seconds.</div>
       <div class=\"grid\">
         {p1_card}
         {water_card}
