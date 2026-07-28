@@ -161,12 +161,13 @@ def _collector_card(title: str, snapshot: dict[str, Any]) -> str:
     connected = bool(snapshot["connected"])
     status_class = "connected" if connected else "disconnected"
     status_text = "Connected" if connected else "Disconnected"
+    event_count = f"{int(snapshot['event_count']):,}"
     return f"""
     <section class=\"card\">
       <div class=\"label\">{html.escape(title)}</div>
       <div class=\"value {status_class}\">{status_text}</div>
       <div class=\"label\">Events stored</div>
-      <div class=\"value\">{snapshot["event_count"]}</div>
+      <div class=\"value\">{event_count}</div>
     </section>
   """
 
@@ -197,6 +198,7 @@ def _history_dashboard() -> str:
         const svg = $('history-chart'), plot = $('history-plot'), summary = $('history-summary');
         let points = [], unit = '', interval = 'hour', selection = null;
         const iso = date => date.toISOString();
+        const number = value => new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(value);
         const range = () => { const end = new Date(), start = new Date(end); start.setDate(start.getDate() - Number($('history-range').value)); return [start,end]; };
         const endpoint = (path, args) => path + '?' + new URLSearchParams(args);
         const escape = value => String(value).replace(/[&<>]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[char]));
@@ -209,13 +211,14 @@ def _history_dashboard() -> str:
           const line = document.createElementNS('http://www.w3.org/2000/svg','path');
           line.setAttribute('class','trend');
           line.setAttribute('d', points.map((p,i) => `${i?'L':'M'}${left+(i/(Math.max(points.length-1,1))*width)} ${bottom-((p.value-min)/span*height)}`).join(' ')); plot.append(line);
-          [[max,top],[min,bottom]].forEach(([value,y]) => { const text=document.createElementNS('http://www.w3.org/2000/svg','text'); text.setAttribute('x','4'); text.setAttribute('y',String(y+4)); text.textContent=`${value.toFixed(2)} ${unit}`; plot.append(text); const grid=document.createElementNS('http://www.w3.org/2000/svg','line'); grid.setAttribute('x1',String(left));grid.setAttribute('x2',String(right));grid.setAttribute('y1',String(y));grid.setAttribute('y2',String(y));grid.setAttribute('class','grid');plot.append(grid); });
+          [[max,top],[min,bottom]].forEach(([value,y]) => { const text=document.createElementNS('http://www.w3.org/2000/svg','text'); text.setAttribute('x','4'); text.setAttribute('y',String(y+4)); text.textContent=`${number(value)} ${unit}`; plot.append(text); const grid=document.createElementNS('http://www.w3.org/2000/svg','line'); grid.setAttribute('x1',String(left));grid.setAttribute('x2',String(right));grid.setAttribute('y1',String(y));grid.setAttribute('y2',String(y));grid.setAttribute('class','grid');plot.append(grid); });
+          [0,Math.floor((points.length-1)/2),points.length-1].forEach(index => { const text=document.createElementNS('http://www.w3.org/2000/svg','text');text.setAttribute('x',String(left+(index/Math.max(points.length-1,1))*width));text.setAttribute('y','300');text.setAttribute('text-anchor',index===0?'start':index===points.length-1?'end':'middle');text.textContent=new Date(points[index].at).toLocaleDateString();plot.append(text); });
           points.forEach((p,i) => { const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('cx',String(left+(i/(Math.max(points.length-1,1))*width)));dot.setAttribute('cy',String(bottom-((p.value-min)/span*height)));dot.setAttribute('r','5');dot.setAttribute('class','dot');dot.setAttribute('tabindex','0');dot.setAttribute('role','button');dot.setAttribute('aria-label',`${new Date(p.at).toLocaleString()}: ${p.value} ${unit}`);dot.addEventListener('click',()=>drill(p));dot.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();drill(p)}});plot.append(dot); });
           const grouped = data.requested_interval === data.interval ? '' : ` · automatically grouped by ${data.interval}`;
           summary.textContent = `${points.length} points · ${data.aggregation} ${data.metric.replaceAll('_',' ')} (${unit})${grouped}`;
         }
         function endOfBucket(at) { const date = new Date(at); if(interval==='day') date.setUTCDate(date.getUTCDate()+1); else if(interval==='hour') date.setUTCHours(date.getUTCHours()+1); else date.setUTCMinutes(date.getUTCMinutes()+(interval==='minute'?1:5)); return date; }
-        async function drill(point, page=1) { if(point) selection={point,start:new Date(point.at),end:endOfBucket(point.at)}; if(!selection)return; const {start,end}=selection; $('history-selection').textContent=`${start.toLocaleString()} · ${selection.point.value} ${unit}`; const args={metric:$('history-metric').value,from:iso(start),to:iso(end),page}; const response=await fetch(endpoint('/api/history/drilldown',args)); const data=await response.json(); if(!response.ok) throw new Error(data.error||'Unable to load source readings'); $('history-value-heading').textContent=`Value (${data.unit||unit})`; $('history-rows').innerHTML=(data.rows||[]).map(row=>`<tr><td>${escape(new Date(row.at).toLocaleString())}</td><td>${escape(row.value)}</td></tr>`).join('') || '<tr><td colspan="2">No source rows</td></tr>'; $('history-page').textContent=`Page ${data.page} · ${data.total} readings`; $('history-previous').disabled=data.page<=1; $('history-next').disabled=data.page*data.page_size>=data.total; $('history-previous').onclick=()=>drill(null,data.page-1); $('history-next').onclick=()=>drill(null,data.page+1); $('history-export').href=endpoint('/api/history/export',{metric:$('history-metric').value,from:iso(start),to:iso(end)}); }
+        async function drill(point, page=1) { if(point) selection={point,start:new Date(point.at),end:endOfBucket(point.at)}; if(!selection)return; const {start,end}=selection; $('history-selection').textContent=`${start.toLocaleString()} · ${number(selection.point.value)} ${unit}`; const args={metric:$('history-metric').value,from:iso(start),to:iso(end),page}; const response=await fetch(endpoint('/api/history/drilldown',args)); const data=await response.json(); if(!response.ok) throw new Error(data.error||'Unable to load source readings'); $('history-value-heading').textContent=`Value (${data.unit||unit})`; $('history-rows').innerHTML=(data.rows||[]).map(row=>`<tr><td>${escape(new Date(row.at).toLocaleString())}</td><td>${escape(number(row.value))}</td></tr>`).join('') || '<tr><td colspan="2">No source rows</td></tr>'; $('history-page').textContent=`Page ${data.page} · ${number(data.total)} readings`; $('history-previous').disabled=data.page<=1; $('history-next').disabled=data.page*data.page_size>=data.total; $('history-previous').onclick=()=>drill(null,data.page-1); $('history-next').onclick=()=>drill(null,data.page+1); $('history-export').href=endpoint('/api/history/export',{metric:$('history-metric').value,from:iso(start),to:iso(end)}); }
         async function load() { $('history-error').textContent=''; const [start,end]=range(); const args={metric:$('history-metric').value,from:iso(start),to:iso(end),interval:$('history-interval').value,aggregation:$('history-aggregation').value}; try { const response=await fetch(endpoint('/api/history',args)); const data=await response.json(); if(!response.ok) throw new Error(data.error||'Unable to load history'); draw(data); $('history-rows').innerHTML=''; $('history-selection').textContent='Select a point on the chart to inspect its source readings.'; } catch(error) { $('history-error').textContent=error.message; summary.textContent='History unavailable'; plot.replaceChildren(); } }
         controls.forEach(control=>control.addEventListener('change',load)); $('history-refresh').addEventListener('click',load); load();
       })();
@@ -247,10 +250,11 @@ def _dashboard_overview() -> str:
       (() => {
         const $ = id => document.getElementById(id);
         const metricCharts = [['chart-electricity','electricity_net_kwh'],['chart-gas','gas_m3'],['chart-water','watermeter_total_m3']];
-        const format = (value, unit) => value === null || value === undefined ? '—' : `${Number(value).toFixed(3)} ${unit}`;
+        const number = value => new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(value);
+        const format = (value, unit) => value === null || value === undefined ? '—' : `${number(value)} ${unit}`;
         const dates = () => { const end=new Date(), start=new Date(end); start.setDate(start.getDate()-Number($('dashboard-range').value)); return [start,end]; };
         const query = args => new URLSearchParams(args);
-        function line(svg, points, unit) { svg.replaceChildren(); if(!points.length){svg.textContent='No readings in this period'; return;} const values=points.map(point=>point.value), min=Math.min(...values), max=Math.max(...values), span=max-min||1, left=56,right=880,top=18,bottom=210,width=right-left,height=bottom-top; const ns='http://www.w3.org/2000/svg'; for(const [value,y] of [[max,top],[min,bottom]]){const label=document.createElementNS(ns,'text');label.setAttribute('x','4');label.setAttribute('y',String(y+4));label.textContent=`${value.toFixed(2)} ${unit}`;svg.append(label);const grid=document.createElementNS(ns,'line');grid.setAttribute('x1',String(left));grid.setAttribute('x2',String(right));grid.setAttribute('y1',String(y));grid.setAttribute('y2',String(y));grid.setAttribute('class','chart-grid');svg.append(grid);} const path=document.createElementNS(ns,'path');path.setAttribute('class','dashboard-trend');path.setAttribute('d',points.map((point,index)=>`${index?'L':'M'}${left+(index/Math.max(points.length-1,1))*width} ${bottom-((point.value-min)/span)*height}`).join(' '));svg.append(path);}
+        function line(svg, points, unit) { svg.replaceChildren(); if(!points.length){svg.textContent='No readings in this period'; return;} const values=points.map(point=>point.value), min=Math.min(...values), max=Math.max(...values), span=max-min||1, left=56,right=880,top=18,bottom=210,width=right-left,height=bottom-top; const ns='http://www.w3.org/2000/svg'; for(const [value,y] of [[max,top],[min,bottom]]){const label=document.createElementNS(ns,'text');label.setAttribute('x','4');label.setAttribute('y',String(y+4));label.textContent=`${number(value)} ${unit}`;svg.append(label);const grid=document.createElementNS(ns,'line');grid.setAttribute('x1',String(left));grid.setAttribute('x2',String(right));grid.setAttribute('y1',String(y));grid.setAttribute('y2',String(y));grid.setAttribute('class','chart-grid');svg.append(grid);} [0,Math.floor((points.length-1)/2),points.length-1].forEach(index=>{const label=document.createElementNS(ns,'text');label.setAttribute('x',String(left+(index/Math.max(points.length-1,1))*width));label.setAttribute('y','240');label.setAttribute('text-anchor',index===0?'start':index===points.length-1?'end':'middle');label.textContent=new Date(points[index].at).toLocaleDateString();svg.append(label);}); const path=document.createElementNS(ns,'path');path.setAttribute('class','dashboard-trend');path.setAttribute('d',points.map((point,index)=>`${index?'L':'M'}${left+(index/Math.max(points.length-1,1))*width} ${bottom-((point.value-min)/span)*height}`).join(' '));svg.append(path);}
         async function load() { const [start,end]=dates(), from=start.toISOString(), to=end.toISOString(), days=Number($('dashboard-range').value), interval=days<=2?'hour':days<=90?'day':'day'; $('dashboard-error').textContent=''; $('dashboard-period').textContent=`${start.toLocaleDateString()} – ${end.toLocaleDateString()}`; try { const summary=await fetch('/api/summary?'+query({from,to})).then(response=>response.json()); if(summary.error)throw new Error(summary.error); $('summary-net').textContent=format(summary.net_consumption_kwh,'kWh');$('summary-high').textContent=format(summary.high_tariff_kwh,'kWh');$('summary-low').textContent=format(summary.low_tariff_kwh,'kWh');$('summary-gas').textContent=format(summary.gas_m3,'m³');$('summary-water').textContent=format(summary.water_m3,'m³'); await Promise.all(metricCharts.map(async ([id,metric])=>{const response=await fetch('/api/history?'+query({metric,from,to,interval,aggregation:'delta'}));const data=await response.json();if(!response.ok)throw new Error(data.error||'Unable to load chart');line($(id),data.points,data.unit);})); } catch(error) { $('dashboard-error').textContent=error.message; } }
         $('dashboard-range').addEventListener('change',load); $('dashboard-refresh').addEventListener('click',load); load();
       })();
@@ -280,99 +284,19 @@ def _render_html(snapshot: dict[str, object]) -> str:
     <meta http-equiv=\"refresh\" content=\"5\">
     <title>HomeMeterHub Status</title>
     <style>
-      :root {{
-        color-scheme: light;
-        --bg: #f4efe8;
-        --panel: #fffaf2;
-        --ink: #1d2a33;
-        --accent: #1d6b57;
-        --muted: #6b7280;
-        --border: #d9cbb8;
-      }}
-      body {{
-        margin: 0;
-        font-family: Georgia, "Times New Roman", serif;
-        background: radial-gradient(circle at top, #fffaf2, var(--bg));
-        color: var(--ink);
-      }}
-      main {{
-        max-width: 960px;
-        margin: 0 auto;
-        padding: 24px;
-      }}
-      h1 {{
-        margin-bottom: 8px;
-      }}
-      .meta {{
-        color: var(--muted);
-        margin-bottom: 20px;
-      }}
-      .grid {{
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-        gap: 16px;
-        margin-bottom: 16px;
-      }}
-      .card {{
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-radius: 16px;
-        padding: 16px;
-        box-shadow: 0 12px 30px rgba(29, 42, 51, 0.08);
-      }}
-      .label {{
-        color: var(--muted);
-        font-size: 0.9rem;
-        margin-bottom: 6px;
-      }}
-      .value {{
-        font-size: 1.1rem;
-      }}
-      .connected {{ color: var(--accent); }}
-      .disconnected {{ color: #a33a2b; }}
-      pre {{
-        background: #1d2a33;
-        color: #edf6f4;
-        border-radius: 16px;
-        padding: 16px;
-        overflow: auto;
-      }}
-      a {{ color: var(--accent); }}
-      .history {{ margin-top: 16px; }}
-      .history-head {{ display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }}
-      .controls {{ display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }}
-      .controls label {{ display: grid; gap: 3px; color: var(--muted); font-size: .82rem; }}
-      .controls select, .controls button {{ padding: 7px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--ink); }}
-      .controls button {{ cursor: pointer; background: var(--accent); color: white; }}
-      .history-chart {{ width: 100%; height: auto; margin-top: 18px; border-bottom: 1px solid var(--border); }}
-      .history-chart text {{ fill: var(--muted); font-size: 13px; }}
-      .grid {{ stroke: var(--border); stroke-width: 1; }}
-      .trend {{ fill: none; stroke: var(--accent); stroke-width: 3; stroke-linejoin: round; stroke-linecap: round; }}
-      .dot {{ fill: var(--accent); cursor: pointer; }}
-      .dot:focus {{ stroke: var(--ink); stroke-width: 3; outline: none; }}
-      .selection {{ margin-top: 12px; color: var(--muted); }}
-      .drill-controls {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }}
-      .drill-controls button {{ padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--ink); }}
-      .table-wrap {{ overflow-x: auto; margin-top: 10px; }}
-      table {{ width: 100%; border-collapse: collapse; text-align: left; }}
-      th, td {{ padding: 8px; border-bottom: 1px solid var(--border); }}
-      .error {{ color: #a33a2b; min-height: 1.2em; margin-top: 8px; }}
+      :root {{ --bg:#f4f7fb;--surface:#fff;--ink:#16233a;--accent:#005fcc;--accent-dark:#004a9e;--muted:#526176;--border:#c8d1df;--focus:#ffbf47; }}
+      * {{ box-sizing:border-box; }} body {{ margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:linear-gradient(180deg,#eef5ff 0,var(--bg) 340px);color:var(--ink); }} main {{ max-width:980px;margin:0 auto;padding:32px 24px 56px; }} h1 {{ font-size:clamp(1.7rem,4vw,2.35rem);margin:0 0 4px; }} a {{ color:var(--accent-dark);font-weight:600; }} a:focus-visible {{ outline:3px solid var(--focus);outline-offset:3px; }} .top {{ display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:28px; }} .meta,.label {{ color:var(--muted); }} .meta {{ margin:0; }} .grid {{ display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-bottom:14px; }} .card {{ background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:0 6px 18px rgba(22,35,58,.06); }} .label {{ font-size:.85rem;font-weight:600;margin-bottom:7px; }} .value {{ font-size:1.35rem;font-weight:700; }} .connected {{ color:#087443; }} .disconnected {{ color:#a32929; }} pre {{ margin:0;background:#17233a;color:#f4f7fb;border-radius:10px;padding:14px;overflow:auto; }} details {{ margin-top:14px; }} summary {{ cursor:pointer;color:var(--accent-dark);font-weight:600; }} @media (max-width:620px) {{ main {{ padding:24px 16px 40px; }} .grid {{ grid-template-columns:1fr; }} }}
     </style>
   </head>
   <body>
     <main>
-      <h1>HomeMeterHub Status</h1>
-      <div class=\"meta\">{version_text}. Refreshes every 5 seconds.</div>
+      <div class=\"top\"><div><h1>HomeMeterHub Status</h1><p class=\"meta\">{version_text}. Refreshes every 5 seconds.</p></div><a href=\"/dashboard\">Open dashboard</a></div>
       <div class=\"grid\">
         {p1_card}
         {water_card}
       </div>
-      <section class=\"card\"><div class=\"label\">Consumption history</div><a href=\"/dashboard\">Open the dashboard</a></section>
-      <section class=\"card\">
-        <div class=\"label\">Raw runtime snapshot</div>
-        <pre>{pretty_json}</pre>
-        <a href=\"/status.json\">status.json</a>
-      </section>
+      <section class=\"card\"><div class=\"label\">Consumption history</div><div class=\"value\">Dashboard ready</div><p class=\"meta\">Review stable period summaries, charts, and source readings without an automatic refresh.</p><a href=\"/dashboard\">Open consumption dashboard</a></section>
+      <section class=\"card\"><details><summary>Raw runtime snapshot</summary><pre>{pretty_json}</pre></details><p><a href=\"/status.json\">Open status.json</a></p></section>
     </main>
   </body>
 </html>
