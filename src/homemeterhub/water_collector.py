@@ -171,10 +171,9 @@ class WaterCollector:
             await asyncio.sleep(self.settings.reconnect_delay_seconds)
 
     def _build_state_callback(self):
-        def on_state(state: Any) -> None:
-            row = self.tracker.apply_state(state)
-            if row is None:
-                return
+        loop = asyncio.get_running_loop()
+
+        def _store(row: dict[str, Any]) -> None:
             self.database.insert_water_measurement(row)
             self.database.mark_success(WATER_COLLECTOR)
             self.runtime_state.record_water_event(row)
@@ -186,5 +185,25 @@ class WaterCollector:
                 row.get("watermeter_flow_l_min"),
                 row.get("pulse_detected"),
             )
+
+        def _on_store_done(future: "asyncio.Future[None]") -> None:
+            error = future.exception()
+            if error is not None:
+                LOGGER.exception("Failed to store water event", exc_info=error)
+                self.runtime_state.record_error("water", str(error))
+                self.database.mark_error(WATER_COLLECTOR, str(error))
+
+        def on_state(state: Any) -> None:
+            row = self.tracker.apply_state(state)
+            if row is None:
+                return
+            # aioesphomeapi invokes this callback synchronously on the asyncio
+            # event loop thread. insert_water_measurement() does blocking network
+            # I/O against PostgreSQL, so it must run in a worker thread instead of
+            # inline here, otherwise every water event would stall the entire
+            # event loop (P1 polling, status page, etc.) until the DB round trip
+            # completes.
+            future = loop.run_in_executor(None, _store, row)
+            future.add_done_callback(_on_store_done)
 
         return on_state

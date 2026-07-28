@@ -3,9 +3,14 @@ services:
     image: ghcr.io/YOUR_GITHUB_USERNAME/homemeterhub:latest
     container_name: homemeterhub
     restart: unless-stopped
+    ports:
+      - "8080:8080"
     environment:
       APP_LOG_LEVEL: "INFO"
       APP_TIMEZONE: "Europe/Amsterdam"
+      APP_STATUS_ENABLED: "true"
+      APP_STATUS_HOST: "0.0.0.0"
+      APP_STATUS_PORT: "8080"
       ENABLE_P1_COLLECTOR: "true"
       ENABLE_WATER_COLLECTOR: "true"
       ENABLE_DB_INIT: "true"
@@ -17,6 +22,8 @@ services:
       DB_SSLMODE: "prefer"
       DB_CONNECT_TIMEOUT_SECONDS: "10"
       DB_APPLICATION_NAME: "homemeterhub"
+      DB_POOL_MIN_SIZE: "1"
+      DB_POOL_MAX_SIZE: "5"
       P1_BASE_URL: "http://192.168.30.50"
       P1_POLL_INTERVAL_SECONDS: "1"
       P1_HTTP_TIMEOUT_SECONDS: "5"

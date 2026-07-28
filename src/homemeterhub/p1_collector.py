@@ -104,12 +104,21 @@ class P1Collector:
         self._last_device_snapshot = now
 
     async def collect_once(self) -> None:
-        e_payload = await asyncio.to_thread(self._fetch_json, self.settings.endpoint_e)
-        try:
-            f_payload = await asyncio.to_thread(self._fetch_json, self.settings.endpoint_f)
-        except Exception as error:  # noqa: BLE001
-            LOGGER.warning("P1 phase poll failed; storing /e row without phase values: %s", error)
+        e_result, f_result = await asyncio.gather(
+            asyncio.to_thread(self._fetch_json, self.settings.endpoint_e),
+            asyncio.to_thread(self._fetch_json, self.settings.endpoint_f),
+            return_exceptions=True,
+        )
+        if isinstance(e_result, Exception):
+            raise e_result
+        e_payload = e_result
+        if isinstance(f_result, Exception):
+            LOGGER.warning(
+                "P1 phase poll failed; storing /e row without phase values: %s", f_result
+            )
             f_payload = None
+        else:
+            f_payload = f_result
         row = build_p1_measurement_row(
             e_payload,
             f_payload,

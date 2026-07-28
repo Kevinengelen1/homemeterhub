@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from threading import Lock
 from typing import Any
 
 import psycopg2
+import psycopg2.pool
 from psycopg2.extras import Json
 
 from homemeterhub.config import DatabaseSettings
@@ -91,24 +93,49 @@ CREATE TABLE IF NOT EXISTS collector_health (
 class Database:
     def __init__(self, settings: DatabaseSettings) -> None:
         self.settings = settings
+        self._pool: Any | None = None
+        self._pool_lock = Lock()
+
+    def _get_pool(self) -> Any:
+        with self._pool_lock:
+            if self._pool is None:
+                self._pool = psycopg2.pool.ThreadedConnectionPool(
+                    self.settings.pool_min_size,
+                    self.settings.pool_max_size,
+                    host=self.settings.host,
+                    port=self.settings.port,
+                    dbname=self.settings.name,
+                    user=self.settings.user,
+                    password=self.settings.password,
+                    sslmode=self.settings.sslmode,
+                    connect_timeout=self.settings.connect_timeout_seconds,
+                    application_name=self.settings.application_name,
+                )
+            return self._pool
 
     @contextmanager
     def connect(self) -> Iterator[Any]:
-        connection = psycopg2.connect(
-            host=self.settings.host,
-            port=self.settings.port,
-            dbname=self.settings.name,
-            user=self.settings.user,
-            password=self.settings.password,
-            sslmode=self.settings.sslmode,
-            connect_timeout=self.settings.connect_timeout_seconds,
-            application_name=self.settings.application_name,
-        )
+        pool = self._get_pool()
+        connection = pool.getconn()
+        discarded = False
         try:
             connection.autocommit = True
             yield connection
+        except BaseException:
+            # Never return a connection that failed during use to the pool.
+            pool.putconn(connection, close=True)
+            discarded = True
+            raise
         finally:
-            connection.close()
+            if not discarded:
+                pool.putconn(connection)
+
+    def close(self) -> None:
+        """Dispose pooled connections; safe to call more than once."""
+        with self._pool_lock:
+            if self._pool is not None:
+                self._pool.closeall()
+                self._pool = None
 
     def ensure_schema(self) -> None:
         with self.connect() as connection, connection.cursor() as cursor:
@@ -118,7 +145,12 @@ class Database:
                     "INSERT INTO collector_health (collector_name) VALUES (%s) "
                     "ON CONFLICT (collector_name) DO NOTHING"
                 ),
-                [("p1_collector",), ("water_collector",), ("db_initializer",)],
+                [
+                    ("p1_collector",),
+                    ("water_collector",),
+                    ("db_initializer",),
+                    ("retention_job",),
+                ],
             )
 
     def insert_p1_measurement(self, row: dict[str, Any]) -> None:
@@ -261,3 +293,21 @@ class Database:
         """
         with self.connect() as connection, connection.cursor() as cursor:
             cursor.execute(query, (collector_name, message[:2000]))
+
+    def delete_old_p1_measurements(self, retention_days: int) -> int:
+        query = (
+            "DELETE FROM p1_measurements "
+            "WHERE measured_at < now() - (%s * INTERVAL '1 day')"
+        )
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (retention_days,))
+            return cursor.rowcount
+
+    def delete_old_water_measurements(self, retention_days: int) -> int:
+        query = (
+            "DELETE FROM water_measurements "
+            "WHERE measured_at < now() - (%s * INTERVAL '1 day')"
+        )
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (retention_days,))
+            return cursor.rowcount

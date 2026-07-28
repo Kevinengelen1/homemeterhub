@@ -9,10 +9,11 @@ HomeMeterHub is a Dockerized Python service that polls a YouLess LS120 P1 meter 
 - YouLess `/e`, `/f`, and periodic `/d` collection;
 - ESPHome state subscription with reconnect handling for water data;
 - collector health tracking in `collector_health`;
+- optional daily retention cleanup of old `p1_measurements`/`water_measurements` rows (`ENABLE_RETENTION_CLEANUP`);
 - built-in status page and JSON endpoint for runtime visibility;
 - unit, regression, and PostgreSQL integration tests;
 - Docker build files and GitHub Actions workflows for CI and GHCR publishing;
-- Portainer stack files under the workspace `docker/stacks/homemeterhub` folder.
+- Portainer stack files under the workspace `docker/stacks/homebrew` folder (deployed alongside other services in that stack).
 
 ## Repository layout
 
@@ -55,12 +56,13 @@ python -m homemeterhub.app --validate-config
 The application reads all settings from environment variables. The most important variables are:
 
 - `DB_HOST`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`
+- `DB_POOL_MIN_SIZE`, `DB_POOL_MAX_SIZE` to tune the shared PostgreSQL connection pool (defaults: `1`/`5`)
 - `P1_BASE_URL`
 - `S0TOOL_HOST`
 - `S0TOOL_NOISE_PSK` when the ESPHome API is encrypted
 - `APP_STATUS_ENABLED`, `APP_STATUS_HOST`, `APP_STATUS_PORT` for the built-in status page
 
-Use [docker-compose.example.yml](docker-compose.example.yml) and [docker/stacks/homemeterhub/.env.example](../docker/stacks/homemeterhub/.env.example) as starting points.
+Use [docker-compose.example.yml](docker-compose.example.yml) as a starting point, and see the `homemeterhub` service definition in [../docker/stacks/homebrew/docker-compose.yml](../docker/stacks/homebrew/docker-compose.yml) for the actual deployment.
 
 ## GitHub setup
 
@@ -82,7 +84,7 @@ Push to `main` after CI passes. The publish workflow will push:
 
 ## Portainer deployment
 
-The stack files are in [../docker/stacks/homemeterhub](../docker/stacks/homemeterhub).
+The stack file is [../docker/stacks/homebrew/docker-compose.yml](../docker/stacks/homebrew/docker-compose.yml).
 
 Recommended deployment flow:
 
@@ -101,6 +103,9 @@ When the status server is enabled, HomeMeterHub serves:
 - `/healthz` for a simple JSON health response
 
 By default the server listens on `0.0.0.0:8080` inside the container.
+
+The image includes a Docker health check against `/healthz`. Keep `APP_STATUS_ENABLED=true` in a
+container deployment; disabling the status server also makes Docker report the container as unhealthy.
 
 ## Specification
 

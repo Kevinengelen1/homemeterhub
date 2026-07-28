@@ -36,6 +36,15 @@ def test_p1_interval_defaults_to_one_second() -> None:
     assert settings.p1.poll_interval_seconds == 1
 
 
+def test_database_pool_defaults_and_validation() -> None:
+    settings = load_settings(base_env())
+    assert settings.database.pool_min_size == 1
+    assert settings.database.pool_max_size == 5
+
+    with pytest.raises(ValueError, match="DB_POOL_MAX_SIZE"):
+        load_settings(base_env() | {"DB_POOL_MIN_SIZE": "3", "DB_POOL_MAX_SIZE": "2"})
+
+
 def test_custom_water_keys_override_defaults() -> None:
     env = base_env() | {"S0TOOL_KEY_WATER_TOTAL": "999"}
     settings = load_settings(env)

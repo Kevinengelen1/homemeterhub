@@ -30,6 +30,14 @@ class DatabaseSettings(BaseModel):
     sslmode: str = Field(default="prefer", alias="DB_SSLMODE")
     connect_timeout_seconds: int = Field(default=10, alias="DB_CONNECT_TIMEOUT_SECONDS")
     application_name: str = Field(default="homemeterhub", alias="DB_APPLICATION_NAME")
+    pool_min_size: int = Field(default=1, ge=1, alias="DB_POOL_MIN_SIZE")
+    pool_max_size: int = Field(default=5, ge=1, alias="DB_POOL_MAX_SIZE")
+
+    @model_validator(mode="after")
+    def validate_pool_size(self) -> DatabaseSettings:
+        if self.pool_max_size < self.pool_min_size:
+            raise ValueError("DB_POOL_MAX_SIZE must be greater than or equal to DB_POOL_MIN_SIZE")
+        return self
 
 
 class P1Settings(BaseModel):
