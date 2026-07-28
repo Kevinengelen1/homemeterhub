@@ -4,7 +4,7 @@ import os
 from collections.abc import Mapping
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 
 class AppSettings(BaseModel):
@@ -129,6 +129,11 @@ class SolarEdgeSettings(BaseModel):
         default="sensor.solaredge_lifetime_energy",
         alias="HOME_ASSISTANT_SOLAREDGE_LIFETIME_ENERGY_ENTITY",
     )
+
+    @field_validator("site_id", mode="before")
+    @classmethod
+    def empty_site_id_is_none(cls, value: object) -> object:
+        return None if value == "" else value
 
 
 class Settings(BaseModel):

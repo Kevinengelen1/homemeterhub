@@ -79,6 +79,16 @@ def test_enabled_solaredge_collector_requires_site_and_api_key() -> None:
     )
     assert settings.solaredge.source == "home_assistant"
 
+    settings_with_empty_site_id = load_settings(
+        base_env()
+        | {
+            "SOLAREDGE_SITE_ID": "",
+            "HOME_ASSISTANT_URL": "http://homeassistant:8123",
+            "HOME_ASSISTANT_TOKEN": "test-token",
+        }
+    )
+    assert settings_with_empty_site_id.solaredge.site_id is None
+
     direct_settings = load_settings(
         base_env()
         | {
