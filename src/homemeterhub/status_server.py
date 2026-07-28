@@ -7,6 +7,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from homemeterhub.config import AppSettings
 from homemeterhub.runtime_state import RuntimeState
 
 LOGGER = logging.getLogger(__name__)
@@ -15,7 +16,7 @@ LOGGER = logging.getLogger(__name__)
 def _json_response(status_code: int, payload: dict[str, object]) -> bytes:
     body = json.dumps(payload, indent=2).encode("utf-8")
     headers = [
-        f"HTTP/1.1 {status_code} OK",
+        f"HTTP/1.1 {status_code} {'OK' if status_code < 400 else 'Service Unavailable'}",
         "Content-Type: application/json; charset=utf-8",
         f"Content-Length: {len(body)}",
         "Connection: close",
@@ -23,6 +24,52 @@ def _json_response(status_code: int, payload: dict[str, object]) -> bytes:
         "",
     ]
     return "\r\n".join(headers).encode("utf-8") + body
+
+
+def _text_response(status_code: int, body: str) -> bytes:
+    payload = body.encode("utf-8")
+    headers = [
+        f"HTTP/1.1 {status_code} OK",
+        "Content-Type: text/plain; version=0.0.4; charset=utf-8",
+        f"Content-Length: {len(payload)}",
+        "Connection: close",
+        "",
+        "",
+    ]
+    return "\r\n".join(headers).encode("utf-8") + payload
+
+
+def health_payload(
+    snapshot: dict[str, object], settings: AppSettings
+) -> tuple[int, dict[str, object]]:
+    started_at = datetime.fromisoformat(str(snapshot["started_at"]))
+    age = (datetime.now(tz=UTC) - started_at).total_seconds()
+    if age < settings.health_startup_grace_seconds:
+        return 200, {
+            "status": "starting",
+            "grace_remaining_seconds": int(settings.health_startup_grace_seconds - age),
+        }
+
+    checks: dict[str, str] = {}
+    limits = {
+        "p1": (settings.enable_p1_collector, settings.health_p1_max_age_seconds),
+        "water": (settings.enable_water_collector, settings.health_water_max_age_seconds),
+    }
+    collectors = snapshot["collectors"]
+    now = datetime.now(tz=UTC)
+    for name, (enabled, max_age) in limits.items():
+        if not enabled:
+            continue
+        last_event_at = collectors[name]["last_event_at"]
+        if last_event_at is None:
+            checks[name] = "no readings received"
+            continue
+        reading_age = (now - datetime.fromisoformat(last_event_at)).total_seconds()
+        if reading_age > max_age:
+            checks[name] = f"stale for {int(reading_age)}s (limit {max_age}s)"
+    if checks:
+        return 503, {"status": "unhealthy", "checks": checks}
+    return 200, {"status": "healthy"}
 
 
 def _html_response(status_code: int, body: str) -> bytes:
@@ -47,7 +94,7 @@ def _collector_card(title: str, snapshot: dict[str, Any]) -> str:
       <div class=\"label\">{html.escape(title)}</div>
       <div class=\"value {status_class}\">{status_text}</div>
       <div class=\"label\">Events stored</div>
-      <div class=\"value\">{snapshot['event_count']}</div>
+      <div class=\"value\">{snapshot["event_count"]}</div>
     </section>
   """
 
@@ -146,10 +193,13 @@ def _render_html(snapshot: dict[str, object]) -> str:
 
 
 class StatusServer:
-    def __init__(self, host: str, port: int, runtime_state: RuntimeState) -> None:
+    def __init__(
+        self, host: str, port: int, runtime_state: RuntimeState, settings: AppSettings
+    ) -> None:
         self.host = host
         self.port = port
         self.runtime_state = runtime_state
+        self.settings = settings
 
     async def run(self) -> None:
         server = await asyncio.start_server(self._handle_client, self.host, self.port)
@@ -170,8 +220,13 @@ class StatusServer:
             path = parts[1] if len(parts) >= 2 else "/"
             snapshot = self.runtime_state.snapshot()
 
-            if path in {"/status.json", "/healthz"}:
+            if path == "/status.json":
                 response = _json_response(200, snapshot)
+            elif path == "/healthz":
+                status_code, payload = health_payload(snapshot, self.settings)
+                response = _json_response(status_code, payload)
+            elif path == "/metrics":
+                response = _text_response(200, self.runtime_state.prometheus_metrics())
             elif path == "/":
                 response = _html_response(200, _render_html(snapshot))
             else:

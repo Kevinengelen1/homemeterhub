@@ -33,6 +33,7 @@ class RuntimeState:
                     "last_event_at": None,
                     "last_error": None,
                     "last_summary": None,
+                    "error_count": 0,
                 },
                 "water": {
                     "connected": False,
@@ -40,6 +41,7 @@ class RuntimeState:
                     "last_event_at": None,
                     "last_error": None,
                     "last_summary": None,
+                    "error_count": 0,
                 },
             },
         }
@@ -53,6 +55,7 @@ class RuntimeState:
             target = self._state["collectors"][collector]
             target["last_error"] = {"at": _utc_now(), "message": message}
             target["connected"] = False
+            target["error_count"] += 1
 
     def record_p1_measurement(self, row: dict[str, Any]) -> None:
         summary = {
@@ -87,3 +90,19 @@ class RuntimeState:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return deepcopy(self._state)
+
+    def prometheus_metrics(self) -> str:
+        with self._lock:
+            lines = ["# TYPE homemeterhub_collector_events_total counter"]
+            for name, state in self._state["collectors"].items():
+                metric = f'homemeterhub_collector_events_total{{collector="{name}"}}'
+                lines.append(f'{metric} {state["event_count"]}')
+            lines.append("# TYPE homemeterhub_collector_errors_total counter")
+            for name, state in self._state["collectors"].items():
+                metric = f'homemeterhub_collector_errors_total{{collector="{name}"}}'
+                lines.append(f'{metric} {state["error_count"]}')
+            lines.append("# TYPE homemeterhub_collector_connected gauge")
+            for name, state in self._state["collectors"].items():
+                metric = f'homemeterhub_collector_connected{{collector="{name}"}}'
+                lines.append(f'{metric} {int(state["connected"])}')
+            return "\n".join(lines) + "\n"

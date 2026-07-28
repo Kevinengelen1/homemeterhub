@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import signal
 
 from homemeterhub.config import load_settings
 from homemeterhub.db import Database
@@ -37,6 +38,8 @@ async def async_main() -> int:
         return 0
 
     database = Database(settings.database)
+    tasks: list[asyncio.Task[None]] = []
+    stop_task: asyncio.Task[bool] | None = None
     try:
         runtime_state = RuntimeState()
         if settings.app.enable_db_init:
@@ -47,7 +50,6 @@ async def async_main() -> int:
                 database.mark_error(DB_INITIALIZER, str(error))
                 raise
 
-        tasks: list[asyncio.Task[None]] = []
         if settings.app.enable_p1_collector:
             tasks.append(
                 asyncio.create_task(
@@ -69,6 +71,7 @@ async def async_main() -> int:
                         settings.app.status_host,
                         settings.app.status_port,
                         runtime_state,
+                        settings.app,
                     ).run(),
                     name="status-server",
                 )
@@ -85,9 +88,32 @@ async def async_main() -> int:
             LOGGER.warning("All services are disabled; exiting")
             return 0
 
-        await asyncio.gather(*tasks)
-        return 0
+        stop_event = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        for shutdown_signal in (signal.SIGINT, signal.SIGTERM):
+            try:
+                loop.add_signal_handler(shutdown_signal, stop_event.set)
+            except NotImplementedError:
+                # Windows does not support loop signal handlers; Docker/Linux does.
+                pass
+        stop_task = asyncio.create_task(stop_event.wait(), name="shutdown-signal")
+        done, _ = await asyncio.wait([*tasks, stop_task], return_when=asyncio.FIRST_COMPLETED)
+        if stop_task in done:
+            LOGGER.info("Shutdown signal received")
+            return 0
+        for task in done:
+            task.result()
+        LOGGER.error("A service task stopped unexpectedly")
+        return 1
     finally:
+        for task in tasks:
+            task.cancel()
+        if stop_task is not None:
+            stop_task.cancel()
+        if tasks or stop_task is not None:
+            await asyncio.gather(
+                *tasks, *([stop_task] if stop_task is not None else []), return_exceptions=True
+            )
         database.close()
 
 

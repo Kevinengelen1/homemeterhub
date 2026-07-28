@@ -10,6 +10,7 @@ import requests
 from homemeterhub.config import P1Settings
 from homemeterhub.db import Database
 from homemeterhub.health import P1_COLLECTOR
+from homemeterhub.quality import validate_p1_measurement
 from homemeterhub.runtime_state import RuntimeState
 
 LOGGER = logging.getLogger(__name__)
@@ -124,7 +125,13 @@ class P1Collector:
             f_payload,
             store_raw_json=self.settings.store_raw_json,
         )
-        await asyncio.to_thread(self.database.insert_p1_measurement, row)
+        validate_p1_measurement(row)
+        inserted = await asyncio.to_thread(self.database.insert_p1_measurement, row)
+        if not inserted:
+            LOGGER.info(
+                "Skipping duplicate P1 measurement for youless_tm=%s", row.get("youless_tm")
+            )
+            return
         await asyncio.to_thread(self.database.mark_success, P1_COLLECTOR)
         self.runtime_state.record_p1_measurement(row)
         self.runtime_state.set_connected("p1", True)

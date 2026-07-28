@@ -10,6 +10,7 @@ from aioesphomeapi import APIClient
 from homemeterhub.config import WaterKeySettings, WaterSettings
 from homemeterhub.db import Database
 from homemeterhub.health import WATER_COLLECTOR
+from homemeterhub.quality import validate_water_measurement
 from homemeterhub.runtime_state import RuntimeState
 
 LOGGER = logging.getLogger(__name__)
@@ -174,6 +175,7 @@ class WaterCollector:
         loop = asyncio.get_running_loop()
 
         def _store(row: dict[str, Any]) -> None:
+            validate_water_measurement(row)
             self.database.insert_water_measurement(row)
             self.database.mark_success(WATER_COLLECTOR)
             self.runtime_state.record_water_event(row)
@@ -186,7 +188,7 @@ class WaterCollector:
                 row.get("pulse_detected"),
             )
 
-        def _on_store_done(future: "asyncio.Future[None]") -> None:
+        def _on_store_done(future: asyncio.Future[None]) -> None:
             error = future.exception()
             if error is not None:
                 LOGGER.exception("Failed to store water event", exc_info=error)

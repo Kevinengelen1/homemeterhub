@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Lock
@@ -10,6 +11,8 @@ import psycopg2.pool
 from psycopg2.extras import Json
 
 from homemeterhub.config import DatabaseSettings
+
+LOGGER = logging.getLogger(__name__)
 
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS p1_measurements (
@@ -89,6 +92,31 @@ CREATE TABLE IF NOT EXISTS collector_health (
 );
 """.strip()
 
+MIGRATIONS: tuple[tuple[int, str], ...] = (
+    (1, SCHEMA_DDL),
+    (
+        2,
+        """
+        DELETE FROM p1_measurements AS duplicate
+        USING p1_measurements AS retained
+        WHERE duplicate.youless_tm = retained.youless_tm
+          AND duplicate.youless_tm IS NOT NULL
+          AND duplicate.id > retained.id;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_p1_measurements_youless_tm_unique
+        ON p1_measurements (youless_tm)
+        WHERE youless_tm IS NOT NULL;
+        """.strip(),
+    ),
+)
+
+MIGRATIONS_DDL = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+""".strip()
+
 
 class Database:
     def __init__(self, settings: DatabaseSettings) -> None:
@@ -139,7 +167,16 @@ class Database:
 
     def ensure_schema(self) -> None:
         with self.connect() as connection, connection.cursor() as cursor:
-            cursor.execute(SCHEMA_DDL)
+            cursor.execute(MIGRATIONS_DDL)
+            cursor.execute("SELECT version FROM schema_migrations")
+            applied_versions = {row[0] for row in cursor.fetchall()}
+            for version, ddl in MIGRATIONS:
+                if version not in applied_versions:
+                    LOGGER.info("Applying database migration %s", version)
+                    cursor.execute(ddl)
+                    cursor.execute(
+                        "INSERT INTO schema_migrations (version) VALUES (%s)", (version,)
+                    )
             cursor.executemany(
                 (
                     "INSERT INTO collector_health (collector_name) VALUES (%s) "
@@ -153,7 +190,7 @@ class Database:
                 ],
             )
 
-    def insert_p1_measurement(self, row: dict[str, Any]) -> None:
+    def insert_p1_measurement(self, row: dict[str, Any]) -> bool:
         payload = dict(row)
         payload["raw_e_json"] = (
             Json(payload["raw_e_json"]) if payload.get("raw_e_json") is not None else None
@@ -210,10 +247,11 @@ class Database:
                 %(s0_power_w)s,
                 %(raw_e_json)s,
                 %(raw_f_json)s
-            )
+            ) ON CONFLICT DO NOTHING
         """
         with self.connect() as connection, connection.cursor() as cursor:
             cursor.execute(query, payload)
+            return cursor.rowcount == 1
 
     def insert_p1_device_snapshot(self, row: dict[str, Any]) -> None:
         payload = dict(row)
@@ -295,19 +333,13 @@ class Database:
             cursor.execute(query, (collector_name, message[:2000]))
 
     def delete_old_p1_measurements(self, retention_days: int) -> int:
-        query = (
-            "DELETE FROM p1_measurements "
-            "WHERE measured_at < now() - (%s * INTERVAL '1 day')"
-        )
+        query = "DELETE FROM p1_measurements WHERE measured_at < now() - (%s * INTERVAL '1 day')"
         with self.connect() as connection, connection.cursor() as cursor:
             cursor.execute(query, (retention_days,))
             return cursor.rowcount
 
     def delete_old_water_measurements(self, retention_days: int) -> int:
-        query = (
-            "DELETE FROM water_measurements "
-            "WHERE measured_at < now() - (%s * INTERVAL '1 day')"
-        )
+        query = "DELETE FROM water_measurements WHERE measured_at < now() - (%s * INTERVAL '1 day')"
         with self.connect() as connection, connection.cursor() as cursor:
             cursor.execute(query, (retention_days,))
             return cursor.rowcount

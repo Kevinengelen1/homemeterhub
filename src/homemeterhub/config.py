@@ -17,6 +17,13 @@ class AppSettings(BaseModel):
     enable_status_server: bool = Field(default=True, alias="APP_STATUS_ENABLED")
     status_host: str = Field(default="0.0.0.0", alias="APP_STATUS_HOST")  # noqa: S104
     status_port: int = Field(default=8080, alias="APP_STATUS_PORT")
+    health_startup_grace_seconds: int = Field(
+        default=90, ge=0, alias="APP_HEALTH_STARTUP_GRACE_SECONDS"
+    )
+    health_p1_max_age_seconds: int = Field(default=120, ge=1, alias="APP_HEALTH_P1_MAX_AGE_SECONDS")
+    health_water_max_age_seconds: int = Field(
+        default=300, ge=1, alias="APP_HEALTH_WATER_MAX_AGE_SECONDS"
+    )
 
 
 class DatabaseSettings(BaseModel):

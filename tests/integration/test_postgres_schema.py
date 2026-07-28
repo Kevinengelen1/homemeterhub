@@ -82,10 +82,8 @@ def test_schema_initialization_and_inserts_work() -> None:
             assert cursor.fetchone()[0] == "water_measurements"
 
             cursor.execute(
-                
-                    "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' "
-                    "AND tablename = 'p1_measurements'"
-                
+                "SELECT indexname FROM pg_indexes WHERE schemaname = 'public' "
+                "AND tablename = 'p1_measurements'"
             )
             index_names = {row[0] for row in cursor.fetchall()}
             assert "idx_p1_measurements_measured_at" in index_names

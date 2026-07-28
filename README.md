@@ -9,6 +9,9 @@ HomeMeterHub is a Dockerized Python service that polls a YouLess LS120 P1 meter 
 - YouLess `/e`, `/f`, and periodic `/d` collection;
 - ESPHome state subscription with reconnect handling for water data;
 - collector health tracking in `collector_health`;
+- versioned, idempotent database migrations and duplicate P1 timestamp protection;
+- stale-reading health checks and Prometheus-compatible runtime metrics;
+- input-quality validation for implausible cumulative, voltage, flow, and Wi-Fi values;
 - optional daily retention cleanup of old `p1_measurements`/`water_measurements` rows (`ENABLE_RETENTION_CLEANUP`);
 - built-in status page and JSON endpoint for runtime visibility;
 - unit, regression, and PostgreSQL integration tests;
@@ -61,6 +64,8 @@ The application reads all settings from environment variables. The most importan
 - `S0TOOL_HOST`
 - `S0TOOL_NOISE_PSK` when the ESPHome API is encrypted
 - `APP_STATUS_ENABLED`, `APP_STATUS_HOST`, `APP_STATUS_PORT` for the built-in status page
+- `APP_HEALTH_STARTUP_GRACE_SECONDS`, `APP_HEALTH_P1_MAX_AGE_SECONDS`, and
+  `APP_HEALTH_WATER_MAX_AGE_SECONDS` for liveness thresholds
 
 Use [docker-compose.example.yml](docker-compose.example.yml) as a starting point, and see the `homemeterhub` service definition in [../docker/stacks/homebrew/docker-compose.yml](../docker/stacks/homebrew/docker-compose.yml) for the actual deployment.
 
@@ -101,11 +106,23 @@ When the status server is enabled, HomeMeterHub serves:
 - `/` for a lightweight HTML status page
 - `/status.json` for the raw runtime snapshot
 - `/healthz` for a simple JSON health response
+- `/metrics` for Prometheus-compatible collector counters and connection gauges
 
 By default the server listens on `0.0.0.0:8080` inside the container.
 
-The image includes a Docker health check against `/healthz`. Keep `APP_STATUS_ENABLED=true` in a
-container deployment; disabling the status server also makes Docker report the container as unhealthy.
+The image includes a Docker health check against `/healthz`. After the startup grace period, it
+returns HTTP 503 when an enabled collector has not produced a reading within its configured age
+limit. Keep `APP_STATUS_ENABLED=true` in a container deployment; disabling the status server also
+makes Docker report the container as unhealthy.
+
+## Security
+
+The deployed stack reads `DB_PASSWORD` from its deployment environment and binds the status port to
+localhost. Use a reverse proxy or an explicit trusted-network binding if remote status access is
+required. The container runs as an unprivileged user.
+
+Take a PostgreSQL backup before deploying a new version. Migration 2 removes historical P1 rows with the same
+`youless_tm`, retaining the earliest row, before enforcing that timestamp as unique.
 
 ## Specification
 
