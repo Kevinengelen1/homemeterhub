@@ -25,6 +25,18 @@ HISTORY_METRICS: dict[str, tuple[str, str, str, str]] = {
 
 HISTORY_INTERVALS = {"raw", "minute", "hour", "day"}
 HISTORY_AGGREGATIONS = {"last", "avg", "min", "max", "delta"}
+HISTORY_MAX_POINTS = 2000
+HISTORY_INTERVAL_SECONDS = {"raw": 1, "minute": 60, "hour": 3600, "day": 86400}
+
+
+def effective_history_interval(interval: str, start: Any, end: Any) -> str:
+    """Return the requested or a coarser bucket that fits the chart point budget."""
+    duration_seconds = max((end - start).total_seconds(), 1)
+    interval_order = ("raw", "minute", "hour", "day")
+    for candidate in interval_order[interval_order.index(interval) :]:
+        if duration_seconds / HISTORY_INTERVAL_SECONDS[candidate] <= HISTORY_MAX_POINTS:
+            return candidate
+    return "day"
 
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS p1_measurements (
@@ -371,6 +383,9 @@ class Database:
         if aggregation not in HISTORY_AGGREGATIONS:
             raise ValueError(f"Unsupported history aggregation: {aggregation}")
 
+        requested_interval = interval
+        interval = effective_history_interval(interval, start, end)
+
         table, column, unit, kind = HISTORY_METRICS[metric]
         if interval == "raw":
             query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
@@ -378,7 +393,7 @@ class Database:
                 FROM {table}
                 WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
                 ORDER BY measured_at ASC
-                LIMIT 2000
+                LIMIT {HISTORY_MAX_POINTS}
             """
             params = (start, end)
         else:
@@ -395,7 +410,7 @@ class Database:
                 WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
                 GROUP BY 1
                 ORDER BY 1 ASC
-                LIMIT 2000
+                LIMIT {HISTORY_MAX_POINTS}
             """
             params = (interval, start, end)
         with self.connect() as connection, connection.cursor() as cursor:
@@ -410,25 +425,60 @@ class Database:
             "unit": unit,
             "kind": kind,
             "interval": interval,
+            "requested_interval": requested_interval,
             "aggregation": aggregation,
             "points": points,
         }
 
     def history_drilldown(
-        self, metric: str, start: Any, end: Any, limit: int = 100
+        self, metric: str, start: Any, end: Any, page: int = 1, page_size: int = 100
     ) -> dict[str, Any]:
         if metric not in HISTORY_METRICS:
             raise ValueError(f"Unsupported history metric: {metric}")
         table, column, unit, _ = HISTORY_METRICS[metric]
+        if page < 1 or not 1 <= page_size <= 500:
+            raise ValueError("Invalid drill-down pagination")
         query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
             SELECT measured_at AS at, {column} AS value
             FROM {table}
             WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
             ORDER BY measured_at DESC
-            LIMIT %s
+            LIMIT %s OFFSET %s
         """
         with self.connect() as connection, connection.cursor() as cursor:
-            cursor.execute(query, (start, end, limit))
+            cursor.execute(
+                f"SELECT COUNT(*) FROM {table} WHERE measured_at >= %s AND measured_at < %s "
+                f"AND {column} IS NOT NULL",  # noqa: S608 - identifiers come from HISTORY_METRICS above
+                (start, end),
+            )
+            total = cursor.fetchone()[0]
+            cursor.execute(query, (start, end, page_size, (page - 1) * page_size))
+            rows = [
+                {"at": at.isoformat(), "value": float(value)} for at, value in cursor.fetchall()
+            ]
+        return {
+            "metric": metric,
+            "unit": unit,
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+            "rows": rows,
+        }
+
+    def history_export(self, metric: str, start: Any, end: Any, max_rows: int) -> dict[str, Any]:
+        result = self.history_drilldown(metric, start, end, page=1, page_size=min(max_rows, 500))
+        if result["total"] > max_rows:
+            raise ValueError(f"Export exceeds APP_HISTORY_EXPORT_MAX_ROWS ({max_rows})")
+        # A bounded export may need more than one page; fetch its complete row set in one query.
+        table, column, unit, _ = HISTORY_METRICS[metric]
+        query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+            SELECT measured_at AS at, {column} AS value
+            FROM {table}
+            WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
+            ORDER BY measured_at ASC
+        """
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (start, end))
             rows = [
                 {"at": at.isoformat(), "value": float(value)} for at, value in cursor.fetchall()
             ]

@@ -119,8 +119,11 @@ makes Docker report the container as unhealthy.
 
 The status page includes a history explorer for electricity, gas, water totals, water flow, and
 instantaneous power. Choose a time range, grouping, and aggregation; select a chart point to reveal
-the source readings in that bucket. History requests are bounded by `APP_HISTORY_MAX_DAYS` (default:
-365) and return at most 2,000 chart points.
+the source readings in that bucket. Long, fine-grained requests are automatically grouped into a
+coarser interval to remain within 2,000 chart points, and the page states when this happens.
+Drill-down rows are paginated; the selected bucket can be exported as CSV (up to
+`APP_HISTORY_EXPORT_MAX_ROWS`, default: 100,000). History requests are bounded by
+`APP_HISTORY_MAX_DAYS` (default: 365).
 
 ## Security
 

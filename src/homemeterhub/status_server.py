@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import csv
 import html
+import io
 import json
 import logging
 from datetime import UTC, datetime, timedelta
@@ -34,6 +36,24 @@ def _text_response(status_code: int, body: str) -> bytes:
     headers = [
         f"HTTP/1.1 {status_code} OK",
         "Content-Type: text/plain; version=0.0.4; charset=utf-8",
+        f"Content-Length: {len(payload)}",
+        "Connection: close",
+        "",
+        "",
+    ]
+    return "\r\n".join(headers).encode("utf-8") + payload
+
+
+def _csv_response(filename: str, rows: list[dict[str, object]]) -> bytes:
+    output = io.StringIO(newline="")
+    writer = csv.DictWriter(output, fieldnames=("at", "value"))
+    writer.writeheader()
+    writer.writerows(rows)
+    payload = output.getvalue().encode("utf-8")
+    headers = [
+        "HTTP/1.1 200 OK",
+        "Content-Type: text/csv; charset=utf-8",
+        f'Content-Disposition: attachment; filename="{filename}"',
         f"Content-Length: {len(payload)}",
         "Connection: close",
         "",
@@ -102,6 +122,17 @@ def history_request(
     return metric, start, end, interval, aggregation
 
 
+def pagination_request(query: dict[str, list[str]]) -> tuple[int, int]:
+    try:
+        page = int(query.get("page", ["1"])[0])
+        page_size = int(query.get("page_size", ["100"])[0])
+    except ValueError as error:
+        raise ValueError("Pagination values must be integers") from error
+    if page < 1 or not 1 <= page_size <= 500:
+        raise ValueError("page must be positive and page_size must be 1-500")
+    return page, page_size
+
+
 def _html_response(status_code: int, body: str) -> bytes:
     payload = body.encode("utf-8")
     headers = [
@@ -145,6 +176,7 @@ def _history_dashboard() -> str:
         <div id="history-error" class="error" role="alert"></div>
         <svg id="history-chart" class="history-chart" viewBox="0 0 900 320" role="img" aria-labelledby="chart-title chart-desc"><title id="chart-title">Meter history</title><desc id="chart-desc">Choose controls to display an aggregated meter trend. Select a point to inspect source readings.</desc><g id="history-plot"></g></svg>
         <div id="history-selection" class="selection">Select a point on the chart to inspect its source readings.</div>
+        <div class="drill-controls"><button id="history-previous" type="button" disabled>Previous</button><span id="history-page"></span><button id="history-next" type="button" disabled>Next</button><a id="history-export" href="#">Download selected readings as CSV</a></div>
         <div class="table-wrap"><table><thead><tr><th>Timestamp</th><th id="history-value-heading">Value</th></tr></thead><tbody id="history-rows"></tbody></table></div>
       </section>
       <script>
@@ -152,7 +184,7 @@ def _history_dashboard() -> str:
         const $ = id => document.getElementById(id);
         const controls = ['history-metric','history-range','history-interval','history-aggregation'].map($);
         const svg = $('history-chart'), plot = $('history-plot'), summary = $('history-summary');
-        let points = [], unit = '', interval = 'hour';
+        let points = [], unit = '', interval = 'hour', selection = null;
         const iso = date => date.toISOString();
         const range = () => { const end = new Date(), start = new Date(end); start.setDate(start.getDate() - Number($('history-range').value)); return [start,end]; };
         const endpoint = (path, args) => path + '?' + new URLSearchParams(args);
@@ -168,10 +200,11 @@ def _history_dashboard() -> str:
           line.setAttribute('d', points.map((p,i) => `${i?'L':'M'}${left+(i/(Math.max(points.length-1,1))*width)} ${bottom-((p.value-min)/span*height)}`).join(' ')); plot.append(line);
           [[max,top],[min,bottom]].forEach(([value,y]) => { const text=document.createElementNS('http://www.w3.org/2000/svg','text'); text.setAttribute('x','4'); text.setAttribute('y',String(y+4)); text.textContent=`${value.toFixed(2)} ${unit}`; plot.append(text); const grid=document.createElementNS('http://www.w3.org/2000/svg','line'); grid.setAttribute('x1',String(left));grid.setAttribute('x2',String(right));grid.setAttribute('y1',String(y));grid.setAttribute('y2',String(y));grid.setAttribute('class','grid');plot.append(grid); });
           points.forEach((p,i) => { const dot=document.createElementNS('http://www.w3.org/2000/svg','circle');dot.setAttribute('cx',String(left+(i/(Math.max(points.length-1,1))*width)));dot.setAttribute('cy',String(bottom-((p.value-min)/span*height)));dot.setAttribute('r','5');dot.setAttribute('class','dot');dot.setAttribute('tabindex','0');dot.setAttribute('role','button');dot.setAttribute('aria-label',`${new Date(p.at).toLocaleString()}: ${p.value} ${unit}`);dot.addEventListener('click',()=>drill(p));dot.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();drill(p)}});plot.append(dot); });
-          summary.textContent = `${points.length} points · ${data.aggregation} ${data.metric.replaceAll('_',' ')} (${unit})`;
+          const grouped = data.requested_interval === data.interval ? '' : ` · automatically grouped by ${data.interval}`;
+          summary.textContent = `${points.length} points · ${data.aggregation} ${data.metric.replaceAll('_',' ')} (${unit})${grouped}`;
         }
         function endOfBucket(at) { const date = new Date(at); if(interval==='day') date.setUTCDate(date.getUTCDate()+1); else if(interval==='hour') date.setUTCHours(date.getUTCHours()+1); else date.setUTCMinutes(date.getUTCMinutes()+(interval==='minute'?1:5)); return date; }
-        async function drill(point) { const start=new Date(point.at), end=endOfBucket(point.at); $('history-selection').textContent=`${start.toLocaleString()} · ${point.value} ${unit}`; const args={metric:$('history-metric').value,from:iso(start),to:iso(end)}; const response=await fetch(endpoint('/api/history/drilldown',args)); const data=await response.json(); $('history-value-heading').textContent=`Value (${data.unit||unit})`; $('history-rows').innerHTML=(data.rows||[]).map(row=>`<tr><td>${escape(new Date(row.at).toLocaleString())}</td><td>${escape(row.value)}</td></tr>`).join('') || '<tr><td colspan="2">No source rows</td></tr>'; }
+        async function drill(point, page=1) { if(point) selection={point,start:new Date(point.at),end:endOfBucket(point.at)}; if(!selection)return; const {start,end}=selection; $('history-selection').textContent=`${start.toLocaleString()} · ${selection.point.value} ${unit}`; const args={metric:$('history-metric').value,from:iso(start),to:iso(end),page}; const response=await fetch(endpoint('/api/history/drilldown',args)); const data=await response.json(); if(!response.ok) throw new Error(data.error||'Unable to load source readings'); $('history-value-heading').textContent=`Value (${data.unit||unit})`; $('history-rows').innerHTML=(data.rows||[]).map(row=>`<tr><td>${escape(new Date(row.at).toLocaleString())}</td><td>${escape(row.value)}</td></tr>`).join('') || '<tr><td colspan="2">No source rows</td></tr>'; $('history-page').textContent=`Page ${data.page} · ${data.total} readings`; $('history-previous').disabled=data.page<=1; $('history-next').disabled=data.page*data.page_size>=data.total; $('history-previous').onclick=()=>drill(null,data.page-1); $('history-next').onclick=()=>drill(null,data.page+1); $('history-export').href=endpoint('/api/history/export',{metric:$('history-metric').value,from:iso(start),to:iso(end)}); }
         async function load() { $('history-error').textContent=''; const [start,end]=range(); const args={metric:$('history-metric').value,from:iso(start),to:iso(end),interval:$('history-interval').value,aggregation:$('history-aggregation').value}; try { const response=await fetch(endpoint('/api/history',args)); const data=await response.json(); if(!response.ok) throw new Error(data.error||'Unable to load history'); draw(data); $('history-rows').innerHTML=''; $('history-selection').textContent='Select a point on the chart to inspect its source readings.'; } catch(error) { $('history-error').textContent=error.message; summary.textContent='History unavailable'; plot.replaceChildren(); } }
         controls.forEach(control=>control.addEventListener('change',load)); $('history-refresh').addEventListener('click',load); load();
       })();
@@ -272,6 +305,8 @@ def _render_html(snapshot: dict[str, object]) -> str:
       .dot {{ fill: var(--accent); cursor: pointer; }}
       .dot:focus {{ stroke: var(--ink); stroke-width: 3; outline: none; }}
       .selection {{ margin-top: 12px; color: var(--muted); }}
+      .drill-controls {{ display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 10px; }}
+      .drill-controls button {{ padding: 6px 9px; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); color: var(--ink); }}
       .table-wrap {{ overflow-x: auto; margin-top: 10px; }}
       table {{ width: 100%; border-collapse: collapse; text-align: left; }}
       th, td {{ padding: 8px; border-bottom: 1px solid var(--border); }}
@@ -342,7 +377,7 @@ class StatusServer:
                     response = _json_response(status_code, payload)
                 elif path == "/metrics":
                     response = _text_response(200, self.runtime_state.prometheus_metrics())
-                elif path in {"/api/history", "/api/history/drilldown"}:
+                elif path in {"/api/history", "/api/history/drilldown", "/api/history/export"}:
                     metric, start, end, interval, aggregation = history_request(
                         parse_qs(parsed_target.query), self.settings
                     )
@@ -350,11 +385,22 @@ class StatusServer:
                         payload = await asyncio.to_thread(
                             self.database.history, metric, start, end, interval, aggregation
                         )
+                        response = _json_response(200, payload)
+                    elif path == "/api/history/drilldown":
+                        page, page_size = pagination_request(parse_qs(parsed_target.query))
+                        payload = await asyncio.to_thread(
+                            self.database.history_drilldown, metric, start, end, page, page_size
+                        )
+                        response = _json_response(200, payload)
                     else:
                         payload = await asyncio.to_thread(
-                            self.database.history_drilldown, metric, start, end
+                            self.database.history_export,
+                            metric,
+                            start,
+                            end,
+                            self.settings.history_export_max_rows,
                         )
-                    response = _json_response(200, payload)
+                        response = _csv_response(f"homemeterhub-{metric}.csv", payload["rows"])
                 elif path == "/":
                     response = _html_response(200, _render_html(snapshot))
                 else:

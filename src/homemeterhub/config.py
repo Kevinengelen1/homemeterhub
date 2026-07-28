@@ -25,6 +25,9 @@ class AppSettings(BaseModel):
         default=300, ge=1, alias="APP_HEALTH_WATER_MAX_AGE_SECONDS"
     )
     history_max_days: int = Field(default=365, ge=1, le=3650, alias="APP_HISTORY_MAX_DAYS")
+    history_export_max_rows: int = Field(
+        default=100_000, ge=1_000, le=1_000_000, alias="APP_HISTORY_EXPORT_MAX_ROWS"
+    )
 
 
 class DatabaseSettings(BaseModel):
