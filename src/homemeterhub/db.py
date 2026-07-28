@@ -1,3 +1,4 @@
+# ruff: noqa: S608
 from __future__ import annotations
 
 import logging
@@ -13,6 +14,17 @@ from psycopg2.extras import Json
 from homemeterhub.config import DatabaseSettings
 
 LOGGER = logging.getLogger(__name__)
+
+HISTORY_METRICS: dict[str, tuple[str, str, str, str]] = {
+    "electricity_net_kwh": ("p1_measurements", "electricity_net_kwh", "kWh", "counter"),
+    "power_w": ("p1_measurements", "power_w", "W", "gauge"),
+    "gas_m3": ("p1_measurements", "gas_m3", "m³", "counter"),
+    "watermeter_total_m3": ("water_measurements", "watermeter_total_m3", "m³", "counter"),
+    "watermeter_flow_l_min": ("water_measurements", "watermeter_flow_l_min", "L/min", "gauge"),
+}
+
+HISTORY_INTERVALS = {"raw", "minute", "hour", "day"}
+HISTORY_AGGREGATIONS = {"last", "avg", "min", "max", "delta"}
 
 SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS p1_measurements (
@@ -343,3 +355,81 @@ class Database:
         with self.connect() as connection, connection.cursor() as cursor:
             cursor.execute(query, (retention_days,))
             return cursor.rowcount
+
+    def history(
+        self,
+        metric: str,
+        start: Any,
+        end: Any,
+        interval: str,
+        aggregation: str,
+    ) -> dict[str, Any]:
+        if metric not in HISTORY_METRICS:
+            raise ValueError(f"Unsupported history metric: {metric}")
+        if interval not in HISTORY_INTERVALS:
+            raise ValueError(f"Unsupported history interval: {interval}")
+        if aggregation not in HISTORY_AGGREGATIONS:
+            raise ValueError(f"Unsupported history aggregation: {aggregation}")
+
+        table, column, unit, kind = HISTORY_METRICS[metric]
+        if interval == "raw":
+            query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+                SELECT measured_at AS at, {column} AS value
+                FROM {table}
+                WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
+                ORDER BY measured_at ASC
+                LIMIT 2000
+            """
+            params = (start, end)
+        else:
+            aggregate = {
+                "last": f"(array_agg({column} ORDER BY measured_at DESC))[1]",
+                "avg": f"AVG({column})",
+                "min": f"MIN({column})",
+                "max": f"MAX({column})",
+                "delta": f"MAX({column}) - MIN({column})",
+            }[aggregation]
+            query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+                SELECT date_trunc(%s, measured_at) AS at, {aggregate} AS value
+                FROM {table}
+                WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
+                GROUP BY 1
+                ORDER BY 1 ASC
+                LIMIT 2000
+            """
+            params = (interval, start, end)
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, params)
+            points = [
+                {"at": at.isoformat(), "value": float(value)}
+                for at, value in cursor.fetchall()
+                if value is not None
+            ]
+        return {
+            "metric": metric,
+            "unit": unit,
+            "kind": kind,
+            "interval": interval,
+            "aggregation": aggregation,
+            "points": points,
+        }
+
+    def history_drilldown(
+        self, metric: str, start: Any, end: Any, limit: int = 100
+    ) -> dict[str, Any]:
+        if metric not in HISTORY_METRICS:
+            raise ValueError(f"Unsupported history metric: {metric}")
+        table, column, unit, _ = HISTORY_METRICS[metric]
+        query = f"""  # noqa: S608 - identifiers come from HISTORY_METRICS above
+            SELECT measured_at AS at, {column} AS value
+            FROM {table}
+            WHERE measured_at >= %s AND measured_at < %s AND {column} IS NOT NULL
+            ORDER BY measured_at DESC
+            LIMIT %s
+        """
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, (start, end, limit))
+            rows = [
+                {"at": at.isoformat(), "value": float(value)} for at, value in cursor.fetchall()
+            ]
+        return {"metric": metric, "unit": unit, "rows": rows}

@@ -70,9 +70,10 @@ async def async_main() -> int:
                     StatusServer(
                         settings.app.status_host,
                         settings.app.status_port,
-                        runtime_state,
-                        settings.app,
-                    ).run(),
+                    runtime_state,
+                    settings.app,
+                    database,
+                ).run(),
                     name="status-server",
                 )
             )

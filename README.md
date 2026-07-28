@@ -107,6 +107,8 @@ When the status server is enabled, HomeMeterHub serves:
 - `/status.json` for the raw runtime snapshot
 - `/healthz` for a simple JSON health response
 - `/metrics` for Prometheus-compatible collector counters and connection gauges
+- `/api/history` for aggregated meter history (`metric`, `from`, `to`, `interval`, `aggregation`)
+- `/api/history/drilldown` for the underlying readings in a selected time bucket
 
 By default the server listens on `0.0.0.0:8080` inside the container.
 
@@ -114,6 +116,11 @@ The image includes a Docker health check against `/healthz`. After the startup g
 returns HTTP 503 when an enabled collector has not produced a reading within its configured age
 limit. Keep `APP_STATUS_ENABLED=true` in a container deployment; disabling the status server also
 makes Docker report the container as unhealthy.
+
+The status page includes a history explorer for electricity, gas, water totals, water flow, and
+instantaneous power. Choose a time range, grouping, and aggregation; select a chart point to reveal
+the source readings in that bucket. History requests are bounded by `APP_HISTORY_MAX_DAYS` (default:
+365) and return at most 2,000 chart points.
 
 ## Security
 
