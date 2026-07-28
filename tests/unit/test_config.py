@@ -66,15 +66,26 @@ def test_disabled_collectors_do_not_require_source_hosts() -> None:
 
 
 def test_enabled_solaredge_collector_requires_site_and_api_key() -> None:
-    with pytest.raises(ValueError, match="SOLAREDGE_SITE_ID"):
+    with pytest.raises(ValueError, match="HOME_ASSISTANT_URL"):
         load_settings(base_env() | {"ENABLE_SOLAREDGE_COLLECTOR": "true"})
 
     settings = load_settings(
         base_env()
         | {
             "ENABLE_SOLAREDGE_COLLECTOR": "true",
+            "HOME_ASSISTANT_URL": "http://homeassistant:8123",
+            "HOME_ASSISTANT_TOKEN": "test-token",
+        }
+    )
+    assert settings.solaredge.source == "home_assistant"
+
+    direct_settings = load_settings(
+        base_env()
+        | {
+            "ENABLE_SOLAREDGE_COLLECTOR": "true",
+            "SOLAREDGE_SOURCE": "solaredge_api",
             "SOLAREDGE_SITE_ID": "123456",
             "SOLAREDGE_API_KEY": "test-key",
         }
     )
-    assert settings.solaredge.site_id == 123456
+    assert direct_settings.solaredge.site_id == 123456

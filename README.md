@@ -66,8 +66,8 @@ The application reads all settings from environment variables. The most importan
 - `APP_STATUS_ENABLED`, `APP_STATUS_HOST`, `APP_STATUS_PORT` for the built-in status page
 - `APP_HEALTH_STARTUP_GRACE_SECONDS`, `APP_HEALTH_P1_MAX_AGE_SECONDS`, and
   `APP_HEALTH_WATER_MAX_AGE_SECONDS` for liveness thresholds
-- `ENABLE_SOLAREDGE_COLLECTOR`, `SOLAREDGE_SITE_ID`, and `SOLAREDGE_API_KEY` for optional
-  SolarEdge cloud collection
+- `ENABLE_SOLAREDGE_COLLECTOR`, `HOME_ASSISTANT_URL`, and `HOME_ASSISTANT_TOKEN` for optional
+  SolarEdge collection through Home Assistant
 
 Use [docker-compose.example.yml](docker-compose.example.yml) as a starting point, and see the `homemeterhub` service definition in [../docker/stacks/homebrew/docker-compose.yml](../docker/stacks/homebrew/docker-compose.yml) for the actual deployment.
 
@@ -129,20 +129,25 @@ within 2,000 chart points, and the page states when this happens.
 
 ## SolarEdge cloud collection
 
-SolarEdge does not need a local API for this integration: HomeMeterHub polls the SolarEdge Monitoring
-API every five minutes when enabled. Configure these deployment variables:
+When Home Assistant already polls SolarEdge, HomeMeterHub uses Home Assistant as its source by
+default. Configure these deployment variables:
 
 ```text
 ENABLE_SOLAREDGE_COLLECTOR=true
-SOLAREDGE_SITE_ID=your-site-id
-SOLAREDGE_API_KEY=your-site-api-key
+SOLAREDGE_SOURCE=home_assistant
+HOME_ASSISTANT_URL=http://homeassistant.local:8123
+HOME_ASSISTANT_TOKEN=your-dedicated-long-lived-token
 ```
 
 The dashboard then shows P1-derived **Solar export** (energy sent to the grid) and SolarEdge-derived
 **Solar now** plus an inverter-production chart. Solar export is not total generation; it excludes
-solar consumed directly by your home. Generate an API key through the SolarEdge Monitoring portal;
-the [SolarEdge Monitoring API documentation](https://knowledge-center.solaredge.com/sites/kc/files/se_monitoring_api.pdf)
-describes site-level API access and the `/site/{siteId}/overview` response used here.
+solar consumed directly by your home. The default entity IDs match the SolarEdge Home Assistant
+integration (`sensor.solaredge_current_power`, `sensor.solaredge_energy_today`, month, year, and
+lifetime energy). Home Assistant’s REST API reads entity states through `/api/states/<entity_id>`
+using a Bearer token; see the [Home Assistant REST API documentation](https://developers.home-assistant.io/docs/api/rest/).
+
+Direct SolarEdge polling remains available only when needed: set `SOLAREDGE_SOURCE=solaredge_api`
+and configure `SOLAREDGE_SITE_ID` and `SOLAREDGE_API_KEY` instead.
 Drill-down rows are paginated; the selected bucket can be exported as CSV (up to
 `APP_HISTORY_EXPORT_MAX_ROWS`, default: 100,000). History requests are bounded by
 `APP_HISTORY_MAX_DAYS` (default: 365).

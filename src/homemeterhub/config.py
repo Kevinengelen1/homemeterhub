@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
@@ -98,11 +99,36 @@ class SolarEdgeSettings(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     enabled: bool = Field(default=False, alias="ENABLE_SOLAREDGE_COLLECTOR")
+    source: Literal["home_assistant", "solaredge_api"] = Field(
+        default="home_assistant", alias="SOLAREDGE_SOURCE"
+    )
     site_id: int | None = Field(default=None, alias="SOLAREDGE_SITE_ID")
     api_key: str | None = Field(default=None, alias="SOLAREDGE_API_KEY")
     poll_interval_seconds: int = Field(default=300, ge=60, alias="SOLAREDGE_POLL_INTERVAL_SECONDS")
     http_timeout_seconds: int = Field(default=15, ge=1, alias="SOLAREDGE_HTTP_TIMEOUT_SECONDS")
     retry_delay_seconds: int = Field(default=300, ge=1, alias="SOLAREDGE_RETRY_DELAY_SECONDS")
+    home_assistant_url: str | None = Field(default=None, alias="HOME_ASSISTANT_URL")
+    home_assistant_token: str | None = Field(default=None, alias="HOME_ASSISTANT_TOKEN")
+    home_assistant_current_power_entity: str = Field(
+        default="sensor.solaredge_current_power",
+        alias="HOME_ASSISTANT_SOLAREDGE_CURRENT_POWER_ENTITY",
+    )
+    home_assistant_today_energy_entity: str = Field(
+        default="sensor.solaredge_energy_today",
+        alias="HOME_ASSISTANT_SOLAREDGE_TODAY_ENERGY_ENTITY",
+    )
+    home_assistant_month_energy_entity: str = Field(
+        default="sensor.solaredge_energy_this_month",
+        alias="HOME_ASSISTANT_SOLAREDGE_MONTH_ENERGY_ENTITY",
+    )
+    home_assistant_year_energy_entity: str = Field(
+        default="sensor.solaredge_energy_this_year",
+        alias="HOME_ASSISTANT_SOLAREDGE_YEAR_ENERGY_ENTITY",
+    )
+    home_assistant_lifetime_energy_entity: str = Field(
+        default="sensor.solaredge_lifetime_energy",
+        alias="HOME_ASSISTANT_SOLAREDGE_LIFETIME_ENERGY_ENTITY",
+    )
 
 
 class Settings(BaseModel):
@@ -119,11 +145,21 @@ class Settings(BaseModel):
             raise ValueError("P1_BASE_URL is required when ENABLE_P1_COLLECTOR=true")
         if self.app.enable_water_collector and not self.water.host:
             raise ValueError("S0TOOL_HOST is required when ENABLE_WATER_COLLECTOR=true")
-        if self.solaredge.enabled and (not self.solaredge.site_id or not self.solaredge.api_key):
-            raise ValueError(
-                "SOLAREDGE_SITE_ID and SOLAREDGE_API_KEY are required when "
-                "ENABLE_SOLAREDGE_COLLECTOR=true"
-            )
+        if self.solaredge.enabled:
+            if self.solaredge.source == "solaredge_api" and (
+                not self.solaredge.site_id or not self.solaredge.api_key
+            ):
+                raise ValueError(
+                    "SOLAREDGE_SITE_ID and SOLAREDGE_API_KEY are required when "
+                    "SOLAREDGE_SOURCE=solaredge_api"
+                )
+            if self.solaredge.source == "home_assistant" and (
+                not self.solaredge.home_assistant_url or not self.solaredge.home_assistant_token
+            ):
+                raise ValueError(
+                    "HOME_ASSISTANT_URL and HOME_ASSISTANT_TOKEN are required when "
+                    "SOLAREDGE_SOURCE=home_assistant"
+                )
         return self
 
 
