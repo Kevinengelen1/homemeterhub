@@ -161,7 +161,7 @@ def _collector_card(title: str, snapshot: dict[str, Any]) -> str:
     connected = bool(snapshot["connected"])
     status_class = "connected" if connected else "disconnected"
     status_text = "Connected" if connected else "Disconnected"
-    event_count = f"{int(snapshot['event_count']):,}"
+    event_count = f"{int(snapshot['event_count']):,}".replace(",", ".")
     return f"""
     <section class=\"card\">
       <div class=\"label\">{html.escape(title)}</div>
@@ -198,7 +198,7 @@ def _history_dashboard() -> str:
         const svg = $('history-chart'), plot = $('history-plot'), summary = $('history-summary');
         let points = [], unit = '', interval = 'hour', selection = null;
         const iso = date => date.toISOString();
-        const number = value => new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(value);
+        const number = value => new Intl.NumberFormat('nl-NL',{maximumFractionDigits:3}).format(value);
         const range = () => { const end = new Date(), start = new Date(end); start.setDate(start.getDate() - Number($('history-range').value)); return [start,end]; };
         const endpoint = (path, args) => path + '?' + new URLSearchParams(args);
         const escape = value => String(value).replace(/[&<>]/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[char]));
@@ -250,7 +250,7 @@ def _dashboard_overview() -> str:
       (() => {
         const $ = id => document.getElementById(id);
         const metricCharts = [['chart-electricity','electricity_net_kwh'],['chart-gas','gas_m3'],['chart-water','watermeter_total_m3']];
-        const number = value => new Intl.NumberFormat('en-US',{maximumFractionDigits:3}).format(value);
+        const number = value => new Intl.NumberFormat('nl-NL',{maximumFractionDigits:3}).format(value);
         const format = (value, unit) => value === null || value === undefined ? '—' : `${number(value)} ${unit}`;
         const dates = () => { const end=new Date(), start=new Date(end); start.setDate(start.getDate()-Number($('dashboard-range').value)); return [start,end]; };
         const query = args => new URLSearchParams(args);

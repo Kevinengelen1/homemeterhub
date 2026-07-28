@@ -40,14 +40,14 @@ def test_dashboard_has_period_tiles_and_no_auto_refresh() -> None:
     assert "chart-water" in html
     assert "http-equiv=\"refresh\"" not in html
     assert "toLocaleDateString" in html
-    assert "Intl.NumberFormat('en-US'" in html
+    assert "Intl.NumberFormat('nl-NL'" in html
 
 
 def test_status_card_formats_event_count_with_commas() -> None:
     snapshot = RuntimeState().snapshot()
     snapshot["collectors"]["p1"]["event_count"] = 12345
 
-    assert "12,345" in _render_html(snapshot)
+    assert "12.345" in _render_html(snapshot)
 
 
 def test_health_reports_stale_enabled_collector() -> None:
