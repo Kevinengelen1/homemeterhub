@@ -10,6 +10,7 @@ from homemeterhub.config import AppSettings
 from homemeterhub.runtime_state import RuntimeState
 from homemeterhub.status_server import (
     StatusServer,
+    _json_response,
     _render_dashboard_html,
     _render_html,
     health_payload,
@@ -52,6 +53,12 @@ def test_health_reports_stale_enabled_collector() -> None:
 
 def test_metrics_exposes_collector_counters() -> None:
     assert "homemeterhub_collector_events_total" in RuntimeState().prometheus_metrics()
+
+
+def test_json_response_converts_nan_to_null() -> None:
+    body = _json_response(200, {"value": float("nan")}).split(b"\r\n\r\n", 1)[1]
+
+    assert json.loads(body) == {"value": None}
 
 
 def test_history_request_validates_the_range_and_defaults() -> None:

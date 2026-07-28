@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from collections.abc import Iterator
 from contextlib import contextmanager
 from threading import Lock
@@ -418,7 +419,7 @@ class Database:
             points = [
                 {"at": at.isoformat(), "value": float(value)}
                 for at, value in cursor.fetchall()
-                if value is not None
+                if value is not None and math.isfinite(float(value))
             ]
         return {
             "metric": metric,
@@ -455,6 +456,7 @@ class Database:
             cursor.execute(query, (start, end, page_size, (page - 1) * page_size))
             rows = [
                 {"at": at.isoformat(), "value": float(value)} for at, value in cursor.fetchall()
+                if math.isfinite(float(value))
             ]
         return {
             "metric": metric,
@@ -481,6 +483,7 @@ class Database:
             cursor.execute(query, (start, end))
             rows = [
                 {"at": at.isoformat(), "value": float(value)} for at, value in cursor.fetchall()
+                if math.isfinite(float(value))
             ]
         return {"metric": metric, "unit": unit, "rows": rows}
 

@@ -7,6 +7,7 @@ import html
 import io
 import json
 import logging
+import math
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -18,8 +19,18 @@ from homemeterhub.runtime_state import RuntimeState
 LOGGER = logging.getLogger(__name__)
 
 
+def _json_safe(value: object) -> object:
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _json_response(status_code: int, payload: object) -> bytes:
-    body = json.dumps(payload, indent=2).encode("utf-8")
+    body = json.dumps(_json_safe(payload), indent=2, allow_nan=False).encode("utf-8")
     headers = [
         f"HTTP/1.1 {status_code} {'OK' if status_code < 400 else 'Service Unavailable'}",
         "Content-Type: application/json; charset=utf-8",
@@ -214,25 +225,24 @@ def _history_dashboard() -> str:
 
 def _dashboard_overview() -> str:
     return """
-      <section class="dashboard-toolbar">
-        <div><div class="label">Consumption dashboard</div><div id="dashboard-period" class="value">Selected period</div></div>
-        <label>Period <select id="dashboard-range"><option value="1">Today</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select></label>
-        <button id="dashboard-refresh" type="button">Update</button>
+      <section class="dashboard-toolbar" aria-labelledby="dashboard-heading">
+        <div><p class="eyebrow">Consumption overview</p><h2 id="dashboard-heading">Your selected period</h2><div id="dashboard-period" class="period" aria-live="polite">Loading period…</div></div>
+        <div class="period-controls"><label for="dashboard-range">Period</label><select id="dashboard-range"><option value="1">Today</option><option value="7">Last 7 days</option><option value="30" selected>Last 30 days</option><option value="90">Last 90 days</option><option value="365">Last year</option></select><button id="dashboard-refresh" type="button">Update dashboard</button></div>
       </section>
       <section class="summary-grid" aria-label="Period summary">
-        <article class="summary-tile"><span>Net consumption</span><strong id="summary-net">—</strong></article>
-        <article class="summary-tile"><span>High tariff</span><strong id="summary-high">—</strong></article>
-        <article class="summary-tile"><span>Low tariff</span><strong id="summary-low">—</strong></article>
-        <article class="summary-tile"><span>Gas</span><strong id="summary-gas">—</strong></article>
-        <article class="summary-tile"><span>Water</span><strong id="summary-water">—</strong></article>
+        <article class="summary-tile"><span>Net consumption</span><strong id="summary-net" aria-live="polite">—</strong><small>Electricity used</small></article>
+        <article class="summary-tile"><span>High tariff</span><strong id="summary-high" aria-live="polite">—</strong><small>Tariff 1</small></article>
+        <article class="summary-tile"><span>Low tariff</span><strong id="summary-low" aria-live="polite">—</strong><small>Tariff 2</small></article>
+        <article class="summary-tile"><span>Gas</span><strong id="summary-gas" aria-live="polite">—</strong><small>Meter change</small></article>
+        <article class="summary-tile"><span>Water</span><strong id="summary-water" aria-live="polite">—</strong><small>Meter change</small></article>
       </section>
       <div id="dashboard-error" class="error" role="alert"></div>
       <section class="dashboard-charts">
-        <article class="chart-panel"><h2>Electricity</h2><p>Net consumption per selected bucket.</p><svg id="chart-electricity" viewBox="0 0 900 250" role="img" aria-label="Electricity consumption chart"></svg></article>
-        <article class="chart-panel"><h2>Gas</h2><p>Gas consumption per selected bucket.</p><svg id="chart-gas" viewBox="0 0 900 250" role="img" aria-label="Gas consumption chart"></svg></article>
-        <article class="chart-panel"><h2>Water</h2><p>Water consumption per selected bucket.</p><svg id="chart-water" viewBox="0 0 900 250" role="img" aria-label="Water consumption chart"></svg></article>
+        <figure class="chart-panel"><figcaption><h2>Electricity</h2><p>Net consumption per selected bucket.</p></figcaption><svg id="chart-electricity" viewBox="0 0 900 250" role="img" aria-label="Electricity consumption chart"></svg></figure>
+        <figure class="chart-panel"><figcaption><h2>Gas</h2><p>Gas consumption per selected bucket.</p></figcaption><svg id="chart-gas" viewBox="0 0 900 250" role="img" aria-label="Gas consumption chart"></svg></figure>
+        <figure class="chart-panel"><figcaption><h2>Water</h2><p>Water consumption per selected bucket.</p></figcaption><svg id="chart-water" viewBox="0 0 900 250" role="img" aria-label="Water consumption chart"></svg></figure>
       </section>
-      <section class="explorer-section"><h2>Explore a trend</h2><p>Choose any metric, aggregation, and grouping below. Select a point to inspect and export its source readings.</p></section>
+      <section class="explorer-section" aria-labelledby="explorer-heading"><p class="eyebrow">Details</p><h2 id="explorer-heading">Explore a trend</h2><p>Choose a metric, aggregation, and grouping below. Select a point to inspect and export its source readings.</p></section>
       <script>
       (() => {
         const $ = id => document.getElementById(id);
@@ -375,14 +385,13 @@ def _render_dashboard_html(snapshot: dict[str, object]) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>HomeMeterHub Dashboard</title><style>
-:root {{ --bg:#f4efe8;--panel:#fffaf2;--ink:#1d2a33;--accent:#1d6b57;--muted:#6b7280;--border:#d9cbb8; }}
-body {{ margin:0;font-family:Georgia,"Times New Roman",serif;background:radial-gradient(circle at top,#fffaf2,var(--bg));color:var(--ink); }}
-main {{ max-width:1160px;margin:0 auto;padding:24px; }} h1,h2 {{ margin:0 0 8px; }} h2 {{ font-size:1.2rem; }} p,.label,.selection {{ color:var(--muted); }} .top {{ display:flex;justify-content:space-between;gap:16px;align-items:baseline;flex-wrap:wrap;margin-bottom:22px; }}
-a {{ color:var(--accent); }} button,select {{ padding:8px;border:1px solid var(--border);border-radius:7px;background:var(--panel);color:var(--ink); }} button {{ cursor:pointer;background:var(--accent);color:white; }}
-.dashboard-toolbar {{ display:flex;gap:14px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:16px; }} .dashboard-toolbar label {{ display:grid;gap:4px;color:var(--muted);font-size:.85rem; }}
-.summary-grid {{ display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px; }} .summary-tile,.chart-panel,.history {{ background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:15px;box-shadow:0 10px 24px rgba(29,42,51,.07); }} .summary-tile span {{ display:block;color:var(--muted);font-size:.85rem; }} .summary-tile strong {{ display:block;font-size:1.35rem;margin-top:6px; }}
-.dashboard-charts {{ display:grid;gap:16px; }} .chart-panel svg,.history-chart {{ width:100%;height:auto;border-bottom:1px solid var(--border); }} .chart-panel text,.history-chart text {{ fill:var(--muted);font-size:13px; }} .chart-grid,.grid {{ stroke:var(--border);stroke-width:1; }} .dashboard-trend,.trend {{ fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round;stroke-linecap:round; }} .dot {{ fill:var(--accent);cursor:pointer; }} .error {{ color:#a33a2b;min-height:1.2em;margin:8px 0; }}
-.explorer-section {{ margin:28px 0 12px; }} .history-head,.controls,.drill-controls {{ display:flex;gap:10px;flex-wrap:wrap;align-items:end;justify-content:space-between; }} .controls label {{ display:grid;gap:3px;color:var(--muted);font-size:.82rem; }} .table-wrap {{ overflow-x:auto;margin-top:10px; }} table {{ width:100%;border-collapse:collapse;text-align:left; }} th,td {{ padding:8px;border-bottom:1px solid var(--border); }}
+:root {{ --bg:#f4f7fb;--surface:#ffffff;--ink:#16233a;--accent:#005fcc;--accent-dark:#004a9e;--muted:#526176;--border:#c8d1df;--focus:#ffbf47; }}
+* {{ box-sizing:border-box; }} body {{ margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:linear-gradient(180deg,#eef5ff 0,var(--bg) 340px);color:var(--ink); }} main {{ max-width:1180px;margin:0 auto;padding:32px 24px 56px; }} h1,h2,p {{ margin-top:0; }} h1 {{ font-size:clamp(1.7rem,4vw,2.35rem);margin-bottom:4px; }} h2 {{ font-size:1.15rem;margin-bottom:4px; }} p,.label,.selection,small {{ color:var(--muted); }} .top {{ display:flex;justify-content:space-between;gap:16px;align-items:flex-start;flex-wrap:wrap;margin-bottom:30px; }} a {{ color:var(--accent-dark);font-weight:600; }} button,select {{ min-height:42px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--ink);font:inherit; }} button {{ cursor:pointer;background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600; }} button:hover {{ background:var(--accent-dark); }} button:disabled {{ cursor:not-allowed;opacity:.55; }} button:focus-visible,select:focus-visible,a:focus-visible,.dot:focus-visible {{ outline:3px solid var(--focus);outline-offset:3px; }}
+.eyebrow {{ margin-bottom:6px;color:var(--accent-dark);font-size:.78rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase; }} .period {{ font-size:1rem;font-weight:600; }} .dashboard-toolbar {{ display:flex;gap:18px;align-items:end;justify-content:space-between;flex-wrap:wrap;margin-bottom:20px;padding-bottom:20px;border-bottom:1px solid var(--border); }} .period-controls {{ display:flex;gap:9px;align-items:end;flex-wrap:wrap; }} .period-controls label {{ display:grid;gap:5px;color:var(--ink);font-size:.88rem;font-weight:600; }}
+.summary-grid {{ display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:26px; }} .summary-tile,.chart-panel,.history {{ background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px;box-shadow:0 6px 18px rgba(22,35,58,.06); }} .summary-tile span {{ display:block;color:var(--muted);font-size:.86rem;font-weight:600; }} .summary-tile strong {{ display:block;font-size:clamp(1.15rem,2vw,1.5rem);margin:8px 0 5px;overflow-wrap:anywhere; }} .summary-tile small {{ font-size:.78rem; }}
+.dashboard-charts {{ display:grid;gap:16px; }} .chart-panel {{ margin:0; }} .chart-panel p {{ margin-bottom:14px; }} .chart-panel svg,.history-chart {{ width:100%;height:auto;border-bottom:1px solid var(--border); }} .chart-panel text,.history-chart text {{ fill:var(--muted);font-size:13px; }} .chart-grid,.grid {{ stroke:var(--border);stroke-width:1; }} .dashboard-trend,.trend {{ fill:none;stroke:var(--accent);stroke-width:3;stroke-linejoin:round;stroke-linecap:round; }} .dot {{ fill:var(--accent);cursor:pointer; }} .error {{ color:#9d1c1c;font-weight:600;min-height:1.2em;margin:8px 0; }}
+.explorer-section {{ margin:38px 0 14px; }} .history-head,.controls,.drill-controls {{ display:flex;gap:10px;flex-wrap:wrap;align-items:end;justify-content:space-between; }} .controls label {{ display:grid;gap:5px;color:var(--ink);font-size:.85rem;font-weight:600; }} .table-wrap {{ overflow-x:auto;margin-top:12px; }} table {{ width:100%;border-collapse:collapse;text-align:left; }} th,td {{ padding:10px 8px;border-bottom:1px solid var(--border); }} th {{ color:var(--muted);font-size:.82rem;text-transform:uppercase;letter-spacing:.04em; }}
+@media (max-width:820px) {{ main {{ padding:24px 16px 40px; }} .summary-grid {{ grid-template-columns:repeat(2,minmax(0,1fr)); }} .summary-tile:last-child {{ grid-column:span 2; }} .dashboard-toolbar {{ align-items:stretch; }} .period-controls {{ width:100%; }} .period-controls select {{ flex:1; }} }} @media (max-width:420px) {{ .summary-grid {{ grid-template-columns:1fr; }} .summary-tile:last-child {{ grid-column:auto; }} .period-controls button {{ width:100%; }} .chart-panel,.history,.summary-tile {{ padding:14px; }} }}
 </style></head><body><main><div class="top"><div><h1>HomeMeterHub Dashboard</h1><div class="label">{version_text}</div></div><a href="/">Operational status</a></div>{_dashboard_overview()}{_history_dashboard()}</main></body></html>"""
 
 
