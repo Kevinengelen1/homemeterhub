@@ -10,6 +10,7 @@ from aioesphomeapi import APIClient
 from homemeterhub.config import WaterKeySettings, WaterSettings
 from homemeterhub.db import Database
 from homemeterhub.health import WATER_COLLECTOR
+from homemeterhub.runtime_state import RuntimeState
 
 LOGGER = logging.getLogger(__name__)
 
@@ -112,9 +113,15 @@ class WaterStateTracker:
 
 
 class WaterCollector:
-    def __init__(self, settings: WaterSettings, database: Database) -> None:
+    def __init__(
+        self,
+        settings: WaterSettings,
+        database: Database,
+        runtime_state: RuntimeState,
+    ) -> None:
         self.settings = settings
         self.database = database
+        self.runtime_state = runtime_state
         self.tracker = WaterStateTracker(
             settings.keys,
             store_raw_payload=settings.store_raw_payload,
@@ -143,6 +150,7 @@ class WaterCollector:
                 await client.connect(on_stop=on_stop, login=True)
                 client.subscribe_states(self._build_state_callback())
                 await asyncio.to_thread(self.database.mark_success, WATER_COLLECTOR)
+                self.runtime_state.set_connected("water", True)
                 LOGGER.info(
                     "Connected to S0Tool ESPHome API at %s:%s",
                     self.settings.host,
@@ -154,8 +162,10 @@ class WaterCollector:
                 raise
             except Exception as error:  # noqa: BLE001
                 LOGGER.exception("Water collector connection failed")
+                self.runtime_state.record_error("water", str(error))
                 await asyncio.to_thread(self.database.mark_error, WATER_COLLECTOR, str(error))
             finally:
+                self.runtime_state.set_connected("water", False)
                 await client.disconnect(force=True)
 
             await asyncio.sleep(self.settings.reconnect_delay_seconds)
@@ -167,5 +177,14 @@ class WaterCollector:
                 return
             self.database.insert_water_measurement(row)
             self.database.mark_success(WATER_COLLECTOR)
+            self.runtime_state.record_water_event(row)
+            LOGGER.info(
+                "Stored water event: source=%s stand_m3=%s total_m3=%s flow_l_min=%s pulse=%s",
+                row.get("event_source"),
+                row.get("watermeter_stand_m3"),
+                row.get("watermeter_total_m3"),
+                row.get("watermeter_flow_l_min"),
+                row.get("pulse_detected"),
+            )
 
         return on_state

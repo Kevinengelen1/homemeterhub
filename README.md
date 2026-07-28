@@ -9,6 +9,7 @@ HomeMeterHub is a Dockerized Python service that polls a YouLess LS120 P1 meter 
 - YouLess `/e`, `/f`, and periodic `/d` collection;
 - ESPHome state subscription with reconnect handling for water data;
 - collector health tracking in `collector_health`;
+- built-in status page and JSON endpoint for runtime visibility;
 - unit, regression, and PostgreSQL integration tests;
 - Docker build files and GitHub Actions workflows for CI and GHCR publishing;
 - Portainer stack files under the workspace `docker/stacks/homemeterhub` folder.
@@ -57,6 +58,7 @@ The application reads all settings from environment variables. The most importan
 - `P1_BASE_URL`
 - `S0TOOL_HOST`
 - `S0TOOL_NOISE_PSK` when the ESPHome API is encrypted
+- `APP_STATUS_ENABLED`, `APP_STATUS_HOST`, `APP_STATUS_PORT` for the built-in status page
 
 Use [docker-compose.example.yml](docker-compose.example.yml) and [docker/stacks/homemeterhub/.env.example](../docker/stacks/homemeterhub/.env.example) as starting points.
 
@@ -89,6 +91,16 @@ Recommended deployment flow:
 3. Ensure the Docker server can reach the PostgreSQL host, YouLess IP, and S0Tool IP.
 4. Deploy the stack.
 5. Check container logs and validate that rows appear in `p1_measurements`, `water_measurements`, and `collector_health`.
+
+## Runtime visibility
+
+When the status server is enabled, HomeMeterHub serves:
+
+- `/` for a lightweight HTML status page
+- `/status.json` for the raw runtime snapshot
+- `/healthz` for a simple JSON health response
+
+By default the server listens on `0.0.0.0:8080` inside the container.
 
 ## Specification
 

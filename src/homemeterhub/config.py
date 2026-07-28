@@ -14,6 +14,9 @@ class AppSettings(BaseModel):
     enable_p1_collector: bool = Field(default=True, alias="ENABLE_P1_COLLECTOR")
     enable_water_collector: bool = Field(default=True, alias="ENABLE_WATER_COLLECTOR")
     enable_db_init: bool = Field(default=True, alias="ENABLE_DB_INIT")
+    enable_status_server: bool = Field(default=True, alias="APP_STATUS_ENABLED")
+    status_host: str = Field(default="0.0.0.0", alias="APP_STATUS_HOST")  # noqa: S104
+    status_port: int = Field(default=8080, alias="APP_STATUS_PORT")
 
 
 class DatabaseSettings(BaseModel):

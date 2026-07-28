@@ -10,6 +10,7 @@ import requests
 from homemeterhub.config import P1Settings
 from homemeterhub.db import Database
 from homemeterhub.health import P1_COLLECTOR
+from homemeterhub.runtime_state import RuntimeState
 
 LOGGER = logging.getLogger(__name__)
 
@@ -71,14 +72,25 @@ def build_p1_device_snapshot_row(d_payload: dict[str, Any]) -> dict[str, Any]:
 
 
 class P1Collector:
-    def __init__(self, settings: P1Settings, database: Database) -> None:
+    def __init__(
+        self,
+        settings: P1Settings,
+        database: Database,
+        runtime_state: RuntimeState,
+    ) -> None:
         self.settings = settings
         self.database = database
+        self.runtime_state = runtime_state
         self._last_device_snapshot = 0.0
+        # Reuse a single session so repeated polls (as frequent as every second)
+        # keep the TCP connection to the YouLess alive instead of forcing the
+        # device to accept a brand new connection on every request, which is a
+        # common cause of intermittent read timeouts on these low-power devices.
+        self._session = requests.Session()
 
     def _fetch_json(self, endpoint: str) -> Any:
         url = f"{self.settings.base_url.rstrip('/')}{endpoint}"
-        response = requests.get(url, timeout=self.settings.http_timeout_seconds)
+        response = self._session.get(url, timeout=self.settings.http_timeout_seconds)
         response.raise_for_status()
         return response.json()
 
@@ -105,6 +117,14 @@ class P1Collector:
         )
         await asyncio.to_thread(self.database.insert_p1_measurement, row)
         await asyncio.to_thread(self.database.mark_success, P1_COLLECTOR)
+        self.runtime_state.record_p1_measurement(row)
+        self.runtime_state.set_connected("p1", True)
+        LOGGER.info(
+            "Stored P1 measurement: power_w=%s net_kwh=%s gas_m3=%s",
+            row.get("power_w"),
+            row.get("electricity_net_kwh"),
+            row.get("gas_m3"),
+        )
         await self._maybe_store_device_info()
 
     async def run(self) -> None:
@@ -114,7 +134,16 @@ class P1Collector:
                 await asyncio.sleep(self.settings.poll_interval_seconds)
             except asyncio.CancelledError:
                 raise
+            except requests.exceptions.RequestException as error:
+                # Transient network hiccups (timeouts, connection resets) against
+                # the YouLess are expected occasionally and are already handled by
+                # the retry loop below, so a concise warning is enough noise here.
+                LOGGER.warning("P1 collector cycle failed: %s", error)
+                self.runtime_state.record_error("p1", str(error))
+                await asyncio.to_thread(self.database.mark_error, P1_COLLECTOR, str(error))
+                await asyncio.sleep(self.settings.retry_delay_seconds)
             except Exception as error:  # noqa: BLE001
                 LOGGER.exception("P1 collector cycle failed")
+                self.runtime_state.record_error("p1", str(error))
                 await asyncio.to_thread(self.database.mark_error, P1_COLLECTOR, str(error))
                 await asyncio.sleep(self.settings.retry_delay_seconds)
