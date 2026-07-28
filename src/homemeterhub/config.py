@@ -14,6 +14,7 @@ class AppSettings(BaseModel):
     timezone: str = Field(default="Europe/Amsterdam", alias="APP_TIMEZONE")
     enable_p1_collector: bool = Field(default=True, alias="ENABLE_P1_COLLECTOR")
     enable_water_collector: bool = Field(default=True, alias="ENABLE_WATER_COLLECTOR")
+    enable_solaredge_collector: bool = Field(default=False, alias="ENABLE_SOLAREDGE_COLLECTOR")
     enable_db_init: bool = Field(default=True, alias="ENABLE_DB_INIT")
     enable_status_server: bool = Field(default=True, alias="APP_STATUS_ENABLED")
     status_host: str = Field(default="0.0.0.0", alias="APP_STATUS_HOST")  # noqa: S104
@@ -24,6 +25,9 @@ class AppSettings(BaseModel):
     health_p1_max_age_seconds: int = Field(default=120, ge=1, alias="APP_HEALTH_P1_MAX_AGE_SECONDS")
     health_water_max_age_seconds: int = Field(
         default=300, ge=1, alias="APP_HEALTH_WATER_MAX_AGE_SECONDS"
+    )
+    health_solaredge_max_age_seconds: int = Field(
+        default=900, ge=1, alias="APP_HEALTH_SOLAREDGE_MAX_AGE_SECONDS"
     )
     history_max_days: int = Field(default=365, ge=1, le=3650, alias="APP_HISTORY_MAX_DAYS")
     history_export_max_rows: int = Field(

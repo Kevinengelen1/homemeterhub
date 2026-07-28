@@ -24,6 +24,7 @@ def test_render_html_contains_runtime_sections() -> None:
     assert "HomeMeterHub Status" in html
     assert "P1 collector" in html
     assert "Water collector" in html
+    assert "SolarEdge collector" in html
     assert "Version 0.2.0" in html
     assert "/status.json" in html
     assert "Open dashboard" in html

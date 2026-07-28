@@ -88,6 +88,7 @@ def health_payload(
     limits = {
         "p1": (settings.enable_p1_collector, settings.health_p1_max_age_seconds),
         "water": (settings.enable_water_collector, settings.health_water_max_age_seconds),
+        "solaredge": (settings.enable_solaredge_collector, settings.health_solaredge_max_age_seconds),
     }
     collectors = snapshot["collectors"]
     now = datetime.now(tz=UTC)
@@ -279,6 +280,7 @@ def _render_html(snapshot: dict[str, object]) -> str:
     collectors = snapshot["collectors"]
     p1_card = _collector_card("P1 collector", collectors["p1"])
     water_card = _collector_card("Water collector", collectors["water"])
+    solaredge_card = _collector_card("SolarEdge collector", collectors["solaredge"])
     return f"""<!doctype html>
 <html lang=\"en\">
   <head>
@@ -297,6 +299,7 @@ def _render_html(snapshot: dict[str, object]) -> str:
       <div class=\"grid\">
         {p1_card}
         {water_card}
+        {solaredge_card}
       </div>
       <section class=\"card\"><div class=\"label\">Consumption history</div><div class=\"value\">Dashboard ready</div><p class=\"meta\">Review stable period summaries, charts, and source readings without an automatic refresh.</p><a href=\"/dashboard\">Open consumption dashboard</a></section>
       <section class=\"card\"><details><summary>Raw runtime snapshot</summary><pre>{pretty_json}</pre></details><p><a href=\"/status.json\">Open status.json</a></p></section>

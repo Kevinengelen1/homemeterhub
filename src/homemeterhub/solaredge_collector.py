@@ -10,6 +10,7 @@ import requests
 from homemeterhub.config import SolarEdgeSettings
 from homemeterhub.db import Database
 from homemeterhub.health import SOLAREDGE_COLLECTOR
+from homemeterhub.runtime_state import RuntimeState
 
 LOGGER = logging.getLogger(__name__)
 SOLAREDGE_API_BASE_URL = "https://monitoringapi.solaredge.com"
@@ -50,9 +51,12 @@ def build_home_assistant_solar_measurement_row(states: dict[str, dict[str, Any]]
 
 
 class SolarEdgeCollector:
-    def __init__(self, settings: SolarEdgeSettings, database: Database) -> None:
+    def __init__(
+        self, settings: SolarEdgeSettings, database: Database, runtime_state: RuntimeState
+    ) -> None:
         self.settings = settings
         self.database = database
+        self.runtime_state = runtime_state
         self.session = requests.Session()
 
     def _fetch_overview(self) -> dict[str, Any]:
@@ -69,6 +73,7 @@ class SolarEdgeCollector:
         row = build_solar_measurement_row(payload)
         await asyncio.to_thread(self.database.insert_solar_measurement, row)
         await asyncio.to_thread(self.database.mark_success, SOLAREDGE_COLLECTOR)
+        self.runtime_state.record_solaredge_measurement(row)
         LOGGER.info(
             "Stored SolarEdge measurement: current_power_w=%s daily_energy_wh=%s",
             row["current_power_w"],
@@ -84,6 +89,7 @@ class SolarEdgeCollector:
                 raise
             except Exception as error:  # noqa: BLE001
                 LOGGER.warning("SolarEdge collector cycle failed: %s", error)
+                self.runtime_state.record_error("solaredge", str(error))
                 await asyncio.to_thread(self.database.mark_error, SOLAREDGE_COLLECTOR, str(error))
                 await asyncio.sleep(self.settings.retry_delay_seconds)
 
@@ -115,6 +121,7 @@ class HomeAssistantSolarEdgeCollector(SolarEdgeCollector):
         row = build_home_assistant_solar_measurement_row(payload["home_assistant_states"])
         await asyncio.to_thread(self.database.insert_solar_measurement, row)
         await asyncio.to_thread(self.database.mark_success, SOLAREDGE_COLLECTOR)
+        self.runtime_state.record_solaredge_measurement(row)
         LOGGER.info(
             "Stored Home Assistant SolarEdge measurement: current_power_w=%s daily_energy_wh=%s",
             row["current_power_w"],

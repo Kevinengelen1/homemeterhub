@@ -93,7 +93,7 @@ async def async_main() -> int:
             )
             tasks.append(
                 asyncio.create_task(
-                    collector_class(settings.solaredge, database).run(),
+                    collector_class(settings.solaredge, database, runtime_state).run(),
                     name="solaredge-collector",
                 )
             )

@@ -49,6 +49,14 @@ class RuntimeState:
                     "last_summary": None,
                     "error_count": 0,
                 },
+                "solaredge": {
+                    "connected": False,
+                    "event_count": 0,
+                    "last_event_at": None,
+                    "last_error": None,
+                    "last_summary": None,
+                    "error_count": 0,
+                },
             },
         }
 
@@ -88,6 +96,21 @@ class RuntimeState:
         }
         with self._lock:
             target = self._state["collectors"]["water"]
+            target["connected"] = True
+            target["event_count"] += 1
+            target["last_event_at"] = _utc_now()
+            target["last_summary"] = _sanitize(summary)
+
+    def record_solaredge_measurement(self, row: dict[str, Any]) -> None:
+        summary = {
+            "current_power_w": row.get("current_power_w"),
+            "daily_energy_wh": row.get("daily_energy_wh"),
+            "monthly_energy_wh": row.get("monthly_energy_wh"),
+            "yearly_energy_wh": row.get("yearly_energy_wh"),
+            "lifetime_energy_wh": row.get("lifetime_energy_wh"),
+        }
+        with self._lock:
+            target = self._state["collectors"]["solaredge"]
             target["connected"] = True
             target["event_count"] += 1
             target["last_event_at"] = _utc_now()

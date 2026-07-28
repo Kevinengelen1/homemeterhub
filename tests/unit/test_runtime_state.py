@@ -5,7 +5,7 @@ from decimal import Decimal
 from homemeterhub.runtime_state import RuntimeState
 
 
-def test_runtime_state_tracks_water_and_p1_activity() -> None:
+def test_runtime_state_tracks_water_p1_and_solaredge_activity() -> None:
     state = RuntimeState()
     assert state.snapshot()["application"]["version"] == "0.2.0"
     state.record_p1_measurement(
@@ -26,6 +26,15 @@ def test_runtime_state_tracks_water_and_p1_activity() -> None:
             "wifi_signal_dbm": Decimal("-65.5"),
         }
     )
+    state.record_solaredge_measurement(
+        {
+            "current_power_w": Decimal("3064"),
+            "daily_energy_wh": Decimal("18228"),
+            "monthly_energy_wh": Decimal("653417"),
+            "yearly_energy_wh": Decimal("3276922"),
+            "lifetime_energy_wh": Decimal("16896454"),
+        }
+    )
 
     snapshot = state.snapshot()
     assert snapshot["collectors"]["p1"]["event_count"] == 1
@@ -34,3 +43,6 @@ def test_runtime_state_tracks_water_and_p1_activity() -> None:
     assert snapshot["collectors"]["water"]["event_count"] == 1
     assert snapshot["collectors"]["water"]["last_summary"]["event_source"] == "watermeter_flow"
     assert snapshot["collectors"]["water"]["last_summary"]["wifi_signal_dbm"] == "-65.5"
+    assert snapshot["collectors"]["solaredge"]["event_count"] == 1
+    assert snapshot["collectors"]["solaredge"]["connected"] is True
+    assert snapshot["collectors"]["solaredge"]["last_summary"]["current_power_w"] == "3064"
