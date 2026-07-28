@@ -12,6 +12,7 @@ from homemeterhub.logging_config import configure_logging
 from homemeterhub.p1_collector import P1Collector
 from homemeterhub.retention import RetentionJob
 from homemeterhub.runtime_state import RuntimeState
+from homemeterhub.solaredge_collector import SolarEdgeCollector
 from homemeterhub.status_server import StatusServer
 from homemeterhub.water_collector import WaterCollector
 
@@ -82,6 +83,13 @@ async def async_main() -> int:
                 asyncio.create_task(
                     RetentionJob(settings.retention, database).run(),
                     name="retention-job",
+                )
+            )
+        if settings.solaredge.enabled:
+            tasks.append(
+                asyncio.create_task(
+                    SolarEdgeCollector(settings.solaredge, database).run(),
+                    name="solaredge-collector",
                 )
             )
 

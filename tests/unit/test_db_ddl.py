@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from homemeterhub.db import MIGRATIONS, MIGRATIONS_DDL, SCHEMA_DDL
+from homemeterhub.db import HISTORY_METRICS, MIGRATIONS, MIGRATIONS_DDL, SCHEMA_DDL
 
 
 def test_ddl_contains_expected_table_names() -> None:
@@ -30,3 +30,9 @@ def test_ddl_does_not_drop_or_truncate_tables() -> None:
 def test_migrations_track_schema_and_deduplicate_p1_timestamps() -> None:
     assert "CREATE TABLE IF NOT EXISTS schema_migrations" in MIGRATIONS_DDL
     assert any("idx_p1_measurements_youless_tm_unique" in ddl for _, ddl in MIGRATIONS)
+
+
+def test_solar_migration_and_history_metrics_are_available() -> None:
+    assert any("CREATE TABLE IF NOT EXISTS solar_measurements" in ddl for _, ddl in MIGRATIONS)
+    assert "solar_export_kwh" in HISTORY_METRICS
+    assert "solar_current_power_w" in HISTORY_METRICS

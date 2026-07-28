@@ -22,6 +22,13 @@ HISTORY_METRICS: dict[str, tuple[str, str, str, str]] = {
     "gas_m3": ("p1_measurements", "gas_m3", "m³", "counter"),
     "watermeter_total_m3": ("water_measurements", "watermeter_total_m3", "m³", "counter"),
     "watermeter_flow_l_min": ("water_measurements", "watermeter_flow_l_min", "L/min", "gauge"),
+    "solar_export_kwh": (
+        "p1_measurements",
+        "COALESCE(electricity_returned_t1_kwh, 0) + COALESCE(electricity_returned_t2_kwh, 0)",
+        "kWh",
+        "counter",
+    ),
+    "solar_current_power_w": ("solar_measurements", "current_power_w", "W", "gauge"),
 }
 
 HISTORY_INTERVALS = {"raw", "minute", "hour", "day"}
@@ -133,6 +140,25 @@ MIGRATIONS: tuple[tuple[int, str], ...] = (
         WHERE youless_tm IS NOT NULL;
         """.strip(),
     ),
+    (
+        3,
+        """
+        CREATE TABLE IF NOT EXISTS solar_measurements (
+            id BIGSERIAL PRIMARY KEY,
+            measured_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            current_power_w NUMERIC(14, 3),
+            daily_energy_wh NUMERIC(18, 3),
+            monthly_energy_wh NUMERIC(18, 3),
+            yearly_energy_wh NUMERIC(18, 3),
+            lifetime_energy_wh NUMERIC(18, 3),
+            raw_overview_json JSONB,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_solar_measurements_measured_at
+        ON solar_measurements (measured_at DESC);
+        """.strip(),
+    ),
 )
 
 MIGRATIONS_DDL = """
@@ -212,6 +238,7 @@ class Database:
                     ("water_collector",),
                     ("db_initializer",),
                     ("retention_job",),
+                    ("solaredge_collector",),
                 ],
             )
 
@@ -312,6 +339,25 @@ class Database:
                 %(wifi_signal_dbm)s,
                 %(event_source)s,
                 %(raw_payload)s
+            )
+        """
+        with self.connect() as connection, connection.cursor() as cursor:
+            cursor.execute(query, payload)
+
+    def insert_solar_measurement(self, row: dict[str, Any]) -> None:
+        payload = dict(row)
+        payload["raw_overview_json"] = (
+            Json(payload["raw_overview_json"])
+            if payload.get("raw_overview_json") is not None
+            else None
+        )
+        query = """
+            INSERT INTO solar_measurements (
+                current_power_w, daily_energy_wh, monthly_energy_wh, yearly_energy_wh,
+                lifetime_energy_wh, raw_overview_json
+            ) VALUES (
+                %(current_power_w)s, %(daily_energy_wh)s, %(monthly_energy_wh)s,
+                %(yearly_energy_wh)s, %(lifetime_energy_wh)s, %(raw_overview_json)s
             )
         """
         with self.connect() as connection, connection.cursor() as cursor:
@@ -493,6 +539,13 @@ class Database:
                 MAX(electricity_net_kwh) - MIN(electricity_net_kwh),
                 MAX(electricity_delivered_t1_kwh) - MIN(electricity_delivered_t1_kwh),
                 MAX(electricity_delivered_t2_kwh) - MIN(electricity_delivered_t2_kwh),
+                MAX(
+                    COALESCE(electricity_returned_t1_kwh, 0)
+                    + COALESCE(electricity_returned_t2_kwh, 0)
+                ) - MIN(
+                    COALESCE(electricity_returned_t1_kwh, 0)
+                    + COALESCE(electricity_returned_t2_kwh, 0)
+                ),
                 MAX(gas_m3) - MIN(gas_m3)
             FROM p1_measurements
             WHERE measured_at >= %s AND measured_at < %s
@@ -504,13 +557,20 @@ class Database:
         """
         with self.connect() as connection, connection.cursor() as cursor:
             cursor.execute(p1_query, (start, end))
-            net, high, low, gas = cursor.fetchone()
+            net, high, low, solar_export, gas = cursor.fetchone()
             cursor.execute(water_query, (start, end))
             water = cursor.fetchone()[0]
+            cursor.execute(
+                "SELECT current_power_w FROM solar_measurements ORDER BY measured_at DESC LIMIT 1"
+            )
+            solar_row = cursor.fetchone()
+            solar_power = solar_row[0] if solar_row is not None else None
         return {
             "net_consumption_kwh": float(net) if net is not None else None,
             "high_tariff_kwh": float(high) if high is not None else None,
             "low_tariff_kwh": float(low) if low is not None else None,
+            "solar_export_kwh": float(solar_export) if solar_export is not None else None,
+            "solar_current_power_w": float(solar_power) if solar_power is not None else None,
             "gas_m3": float(gas) if gas is not None else None,
             "water_m3": float(water) if water is not None else None,
         }

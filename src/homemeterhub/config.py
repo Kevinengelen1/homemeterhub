@@ -94,12 +94,24 @@ class RetentionSettings(BaseModel):
     water_events_days: int = Field(default=730, alias="RETENTION_WATER_EVENTS_DAYS")
 
 
+class SolarEdgeSettings(BaseModel):
+    model_config = ConfigDict(str_strip_whitespace=True)
+
+    enabled: bool = Field(default=False, alias="ENABLE_SOLAREDGE_COLLECTOR")
+    site_id: int | None = Field(default=None, alias="SOLAREDGE_SITE_ID")
+    api_key: str | None = Field(default=None, alias="SOLAREDGE_API_KEY")
+    poll_interval_seconds: int = Field(default=300, ge=60, alias="SOLAREDGE_POLL_INTERVAL_SECONDS")
+    http_timeout_seconds: int = Field(default=15, ge=1, alias="SOLAREDGE_HTTP_TIMEOUT_SECONDS")
+    retry_delay_seconds: int = Field(default=300, ge=1, alias="SOLAREDGE_RETRY_DELAY_SECONDS")
+
+
 class Settings(BaseModel):
     app: AppSettings
     database: DatabaseSettings
     p1: P1Settings
     water: WaterSettings
     retention: RetentionSettings
+    solaredge: SolarEdgeSettings
 
     @model_validator(mode="after")
     def validate_enabled_collectors(self) -> Settings:
@@ -107,6 +119,11 @@ class Settings(BaseModel):
             raise ValueError("P1_BASE_URL is required when ENABLE_P1_COLLECTOR=true")
         if self.app.enable_water_collector and not self.water.host:
             raise ValueError("S0TOOL_HOST is required when ENABLE_WATER_COLLECTOR=true")
+        if self.solaredge.enabled and (not self.solaredge.site_id or not self.solaredge.api_key):
+            raise ValueError(
+                "SOLAREDGE_SITE_ID and SOLAREDGE_API_KEY are required when "
+                "ENABLE_SOLAREDGE_COLLECTOR=true"
+            )
         return self
 
 
@@ -126,6 +143,7 @@ def load_settings(env: Mapping[str, str] | None = None) -> Settings:
         "p1": source,
         "water": {**source, "keys": source},
         "retention": source,
+        "solaredge": source,
     }
     try:
         return Settings.model_validate(payload)

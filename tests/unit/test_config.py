@@ -63,3 +63,18 @@ def test_disabled_collectors_do_not_require_source_hosts() -> None:
     settings = load_settings(env)
     assert settings.app.enable_p1_collector is False
     assert settings.app.enable_water_collector is False
+
+
+def test_enabled_solaredge_collector_requires_site_and_api_key() -> None:
+    with pytest.raises(ValueError, match="SOLAREDGE_SITE_ID"):
+        load_settings(base_env() | {"ENABLE_SOLAREDGE_COLLECTOR": "true"})
+
+    settings = load_settings(
+        base_env()
+        | {
+            "ENABLE_SOLAREDGE_COLLECTOR": "true",
+            "SOLAREDGE_SITE_ID": "123456",
+            "SOLAREDGE_API_KEY": "test-key",
+        }
+    )
+    assert settings.solaredge.site_id == 123456
